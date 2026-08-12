@@ -1,0 +1,39 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "MIT"
+issueTrackerURL = "https://github.com/TartaricAcid/TouhouLittleMaid/issues"
+
+[[mods]]
+modId = "tlm_statue_animation"
+version = "${file.jarVersion}"
+displayName = "Touhou Little Maid: Statue Animation"
+description = '''车万女仆与 Yes Steve Model 的共同附属 Mod：准星对着车万女仆的雕像（手办）时，可打开其 YSM 模型对应的动作轮盘，让雕像播放 YSM 动作。'''
+authors = "TouhouLittleMaidStatueAnimation Authors"
+
+[[dependencies.tlm_statue_animation]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.tlm_statue_animation]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.21)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.tlm_statue_animation]]
+modId = "touhou_little_maid"
+mandatory = true
+versionRange = "[1.5.3,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.tlm_statue_animation]]
+modId = "yes_steve_model"
+mandatory = true
+versionRange = "[2.3.3,)"
+ordering = "AFTER"
+side = "BOTH"
