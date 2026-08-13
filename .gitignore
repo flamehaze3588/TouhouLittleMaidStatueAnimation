@@ -24,7 +24,7 @@ build
 # other
 eclipse
 run
-src/test
+# 本项目提交单元测试（与 TLM 上游不同，不忽略 src/test）
 
 # Files from Forge MDK
 forge*changelog.txt
