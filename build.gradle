@@ -52,7 +52,9 @@ minecraft {
 }
 
 repositories {
-    // 优先本地 libs 文件夹（可放入 YSM 2.x 等无 Maven 坐标的 jar，仅供开发运行调试用）
+    // 本地 libs 文件夹：前置 mod 的 jar（TLM 必需、YSM 仅供编译期引用）
+    // 注意：YSM 2.x 为闭源 Mod，无公开 Maven 坐标，故一律走本地 jar；
+    // 运行时调试（runClient）需要把 TLM/YSM 的 jar 放入 run/client/mods。
     flatDir {
         dir 'libs'
     }
@@ -68,11 +70,27 @@ dependencies {
     minecraft "net.minecraftforge:forge:${forge_version}"
 
     // 前置：车万女仆（编译 + 运行时）
-    implementation fg.deobf("maven.modrinth:touhou-little-maid:${tlm_version}")
+    implementation fg.deobf("libs:touhoulittlemaid:${tlm_version}")
 
-    // 注意：YSM 2.x（yes_steve_model）为闭源 Mod，无公开 Maven 坐标。
-    // 本附属 mod 对 YSM 零编译依赖（照抄 TLM 的软联动设计）；
-    // 开发调试运行时需要手动把 YSM 2.3.3+ 的 jar 放入 run/client/mods。
+    // 注意：Yes Steve Model 2.x 官方 jar 经 ProGuard 混淆（类名全部 O/0 化），无法编译期引用其类。
+    // 本附属 mod 对 YSM 零编译依赖，运行时是否装载由 mods.toml 的 mandatory 依赖声明保证；
+    // 开发调试（runClient）需把 ysm-2.6.5-forge+mc1.20.1.jar 放入 run/client/mods（libs/ 中已备）。
+
+    // 单元测试（JUnit 5）
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// 让单元测试能访问 Minecraft/Forge/前置 mod 的类（如 CompoundTag、BlockPos）
+sourceSets {
+    test {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+    }
+}
+
+test {
+    useJUnitPlatform()
 }
 
 jar {
