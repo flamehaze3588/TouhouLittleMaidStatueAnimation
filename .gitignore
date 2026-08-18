@@ -34,3 +34,6 @@ forge*changelog.txt
 libs/
 build-log.txt
 build-exit.txt
+
+logs/
+test-log.txt
