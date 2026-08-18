@@ -5,7 +5,7 @@ issueTrackerURL = "https://github.com/TartaricAcid/TouhouLittleMaid/issues"
 
 [[mods]]
 modId = "tlm_statue_animation"
-version = "${file.jarVersion}"
+version = "${version}"
 displayName = "Touhou Little Maid: Statue Animation"
 description = '''车万女仆与 Yes Steve Model 的共同附属 Mod：准星对着车万女仆的雕像（手办）时，可打开其 YSM 模型对应的动作轮盘，让雕像播放 YSM 动作。'''
 authors = "TouhouLittleMaidStatueAnimation Authors"

@@ -33,6 +33,10 @@ minecraft {
         configureEach {
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
+            // 让 mods 文件夹中的 SRG 版前置 mod（TLM/YSM）的 mixin refmap 能映射到开发环境命名
+            //（与 TLM 自身 build.gradle 的 run 配置一致；缺这两行会报 "could not find any targets"）
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
             mods {
                 tlm_statue_animation {
                     source sourceSets.main
@@ -69,8 +73,10 @@ repositories {
 dependencies {
     minecraft "net.minecraftforge:forge:${forge_version}"
 
-    // 前置：车万女仆（编译 + 运行时）
-    implementation fg.deobf("libs:touhoulittlemaid:${tlm_version}")
+    // 前置：车万女仆（仅编译期；运行时以 SRG 版 release jar 放入 run/client/mods，
+    // 避免 deobf 上 classpath 时 TLM 自带的 mixin refmap 在开发环境失配——该问题实测发生，
+    // 见 docs/TLM-YSM-Linkage-Principle.md §8.4）
+    compileOnly fg.deobf("libs:touhoulittlemaid:${tlm_version}")
 
     // 注意：Yes Steve Model 2.x 官方 jar 经 ProGuard 混淆（类名全部 O/0 化），无法编译期引用其类。
     // 本附属 mod 对 YSM 零编译依赖，运行时是否装载由 mods.toml 的 mandatory 依赖声明保证；
@@ -91,6 +97,13 @@ sourceSets {
 
 test {
     useJUnitPlatform()
+}
+
+// 替换 mods.toml 中的 ${file.jarVersion} 占位符
+processResources {
+    filesMatching('META-INF/mods.toml') {
+        expand 'version': project.version
+    }
 }
 
 jar {
