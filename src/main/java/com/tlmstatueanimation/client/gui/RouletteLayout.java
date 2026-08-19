@@ -3,39 +3,62 @@ package com.tlmstatueanimation.client.gui;
 import java.util.List;
 
 /**
- * 轮盘径向布局几何核心（D4，纯逻辑，无 MC 依赖，可单测）。
- * 坐标约定：屏幕坐标（x 向右、y 向下），扇区从 12 点钟方向起顺时针均分。
+ * 轮盘径向布局几何核心（对齐 YSM 2.x 轮盘约定，纯逻辑，无 MC 依赖，可单测）。
+ * 坐标约定：屏幕坐标（x 向右、y 向下）；角度 0 在 3 点钟方向，随 y 向下递增（即顺时针）。
+ * 每页固定 8 个环形扇段，扇段 i 的角度区间为
+ * [(2π/8)*i + GAP, (2π/8)*(i+1) - GAP]（相邻扇段间留 2° 间隙带，间隙带内不悬停）。
+ * 悬停半径带为 50 &lt; dist &lt; 100（窄于视觉环：内半径 25、外半径 105）。
  */
 public final class RouletteLayout {
     /** 每页扇区数（与 YSM 轮盘一致） */
     public static final int ITEMS_PER_PAGE = 8;
+    /** 扇段间隙半宽（弧度），0.034906585f ≈ 2° */
+    public static final double SECTOR_GAP = 0.034906585;
+    /** 悬停半径带下限（含边界拒绝：dist &lt;= 50 不悬停） */
+    public static final double HOVER_MIN_RADIUS = 50;
+    /** 悬停半径带上限（含边界拒绝：dist &gt;= 100 不悬停） */
+    public static final double HOVER_MAX_RADIUS = 100;
 
     private RouletteLayout() {
     }
 
+    /** 扇段 i 的起始角（含间隙内缩），弧度 */
+    public static double sectorStartAngle(int index) {
+        return Math.PI * 2 / ITEMS_PER_PAGE * index + SECTOR_GAP;
+    }
+
+    /** 扇段 i 的结束角（含间隙内缩），弧度 */
+    public static double sectorEndAngle(int index) {
+        return Math.PI * 2 / ITEMS_PER_PAGE * (index + 1) - SECTOR_GAP;
+    }
+
+    /** 扇段 i 的中心角（弧度）：0.3926991 + i * 0.7853982，即 π/8 起每 π/4 */
+    public static double sectorCenterAngle(int index) {
+        return Math.PI / ITEMS_PER_PAGE + index * (Math.PI * 2 / ITEMS_PER_PAGE);
+    }
+
     /**
-     * 把鼠标相对轮盘中心的偏移映射到扇区下标。
+     * 把鼠标相对轮盘中心的偏移映射到扇段下标。
      *
-     * @param itemCount      当前页条目数（扇区数）
-     * @param mouseDX        鼠标 x - 中心 x
-     * @param mouseDY        鼠标 y - 中心 y
-     * @param deadZoneRadius 中心死区半径（死区内返回 -1）
-     * @return 扇区下标 [0, itemCount)；死区内或 itemCount&lt;=0 返回 -1
+     * @param mouseDX 鼠标 x - 中心 x
+     * @param mouseDY 鼠标 y - 中心 y
+     * @return 扇段下标 [0, 8)；间隙带内或半径带（50, 100）外返回 -1
      */
-    public static int angleToIndex(int itemCount, double mouseDX, double mouseDY, double deadZoneRadius) {
-        if (itemCount <= 0) {
+    public static int hoveredIndex(double mouseDX, double mouseDY) {
+        double dist = Math.sqrt(mouseDX * mouseDX + mouseDY * mouseDY);
+        if (dist <= HOVER_MIN_RADIUS || dist >= HOVER_MAX_RADIUS) {
             return -1;
         }
-        if (mouseDX * mouseDX + mouseDY * mouseDY < deadZoneRadius * deadZoneRadius) {
-            return -1;
+        double theta = Math.atan2(mouseDY, mouseDX);
+        if (theta < 0) {
+            theta += Math.PI * 2;
         }
-        // 屏幕坐标系：正上方为 0，顺时针增长（atan2(dx, -dy)：上=0，右=π/2，下=π，左=3π/2）
-        double angle = Math.atan2(mouseDX, -mouseDY);
-        if (angle < 0) {
-            angle += Math.PI * 2;
+        for (int i = 0; i < ITEMS_PER_PAGE; i++) {
+            if (theta > sectorStartAngle(i) && theta < sectorEndAngle(i)) {
+                return i;
+            }
         }
-        double sectorSize = Math.PI * 2 / itemCount;
-        return (int) (angle / sectorSize) % itemCount;
+        return -1;
     }
 
     /** 页数（0 个条目时按 1 页计，防御） */

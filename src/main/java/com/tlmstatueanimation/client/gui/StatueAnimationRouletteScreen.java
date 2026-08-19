@@ -1,37 +1,71 @@
 package com.tlmstatueanimation.client.gui;
 
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import com.tlmstatueanimation.client.StatueAnimationKeys;
 import com.tlmstatueanimation.network.NetworkHandler;
 import com.tlmstatueanimation.network.message.C2SPlayStatueAnimationPacket;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
+import org.joml.Matrix4f;
 
 import java.util.List;
 
 /**
- * 雕像动作轮盘屏（D4：自建径向菜单，不复用 YSM 轮盘）。
- * 条目沿圆周排布，鼠标悬停高亮；左键点扇区=播放，点中心=停止，右键/ESC/点外圈=取消。
- * 打开时游戏不暂停（isPauseScreen=false），雕像在轮盘后继续动画。
+ * 雕像动作轮盘屏（复刻 YSM 2.x 轮盘视觉风格：几何、配色、交互对齐）。
+ * 轮盘中心偏左（右侧放页码控件区），不暗化背景，轮盘浮在游戏画面上；
+ * 左键点扇区=播放，点中心停止钮=停止，滚轮/页码按钮翻页，ESC/轮盘键关屏；
+ * 点轮盘外空白与右键均不关屏。打开时游戏不暂停（isPauseScreen=false）。
  */
 public class StatueAnimationRouletteScreen extends Screen {
-    /** 中心停止区半径 */
-    private static final int DEAD_ZONE_RADIUS = 26;
-    /** 条目盒中心所在圆周半径的下限/上限 */
-    private static final int MIN_RING_RADIUS = 64;
-    private static final int MAX_RING_RADIUS = 120;
-    /** 悬停识别的外圈上限（相对环半径的倍数），超出视为点外圈取消 */
-    private static final double OUTER_LIMIT_FACTOR = 1.7;
-    private static final int BOX_WIDTH = 88;
-    private static final int BOX_HEIGHT = 20;
+    /** 轮盘中心相对屏幕中心的偏移（偏左，右侧留给页码控件） */
+    private static final int CENTER_OFFSET_X = -70;
+    private static final int CENTER_OFFSET_Y = -8;
 
-    private static final int COLOR_TEXT = 0xFFFFFF;
-    private static final int COLOR_TITLE = 0xA0E8FF;
-    private static final int COLOR_BOX = 0xA0202020;
-    private static final int COLOR_BOX_HOVER = 0xE04070A0;
-    private static final int COLOR_STOP = 0xA0602020;
-    private static final int COLOR_STOP_HOVER = 0xE0A03030;
+    /** 扇段内/外半径；悬停时外半径扩大 */
+    private static final int INNER_RADIUS = 25;
+    private static final int OUTER_RADIUS = 105;
+    private static final int OUTER_RADIUS_HOVER = 115;
+
+    /** 标签圆心半径与自动换行宽度 */
+    private static final int LABEL_RADIUS = 65;
+    private static final int LABEL_WRAP_WIDTH = 50;
+
+    /** 中心停止按钮（相对轮盘中心：x-20, y-10, 40x20） */
+    private static final int STOP_X = -20;
+    private static final int STOP_Y = -10;
+    private static final int STOP_W = 40;
+    private static final int STOP_H = 20;
+
+    /** 页码控件（相对轮盘中心）：< 按钮、> 按钮、页码信息条 */
+    private static final int PREV_X = 125;
+    private static final int NEXT_X = 240;
+    private static final int PAGE_BTN_Y = -102;
+    private static final int PAGE_BTN_SIZE = 30;
+    private static final int PAGE_BAR_LEFT = 157;
+    private static final int PAGE_BAR_RIGHT = 238;
+    private static final int PAGE_BAR_TOP = -87;
+    private static final int PAGE_BAR_BOTTOM = -72;
+    /** 滚轮翻页仅在此 x 界限左侧生效（相对轮盘中心） */
+    private static final int SCROLL_X_LIMIT = 110;
+
+    private static final int COLOR_SEGMENT = 0x90000000;
+    private static final int COLOR_SEGMENT_HOVER = 0xF0FFB100;
+    private static final int COLOR_LABEL = 0xF3EFE0;
+    private static final int COLOR_FLAT_BUTTON = 0x90000000;
+    private static final int COLOR_FLAT_BUTTON_HOVER = 0xC0404040;
+    private static final int COLOR_PAGE_BAR = 0xCF000000;
+    private static final int COLOR_PAGE_TEXT = 0x55FFFF;
 
     private final BlockPos corePos;
     private final String modelId;
@@ -52,131 +86,188 @@ public class StatueAnimationRouletteScreen extends Screen {
     }
 
     private int centerX() {
-        return this.width / 2;
+        return this.width / 2 + CENTER_OFFSET_X;
     }
 
     private int centerY() {
-        return this.height / 2;
-    }
-
-    private int ringRadius() {
-        return Mth.clamp(Math.min(this.width, this.height) / 4, MIN_RING_RADIUS, MAX_RING_RADIUS);
+        return this.height / 2 + CENTER_OFFSET_Y;
     }
 
     private List<RouletteEntry> currentPageEntries() {
         return RouletteLayout.pageEntries(this.entries, this.page);
     }
 
-    /**
-     * 当前悬停扇区下标（当前页条目列表内的下标）；死区/外圈外返回 -1。
-     */
-    private int hoveredIndex(double mouseX, double mouseY) {
-        double dx = mouseX - centerX();
-        double dy = mouseY - centerY();
-        int index = RouletteLayout.angleToIndex(currentPageEntries().size(), dx, dy, DEAD_ZONE_RADIUS);
-        if (index < 0) {
-            return -1;
-        }
-        double distSq = dx * dx + dy * dy;
-        double outer = ringRadius() * OUTER_LIMIT_FACTOR;
-        if (distSq > outer * outer) {
-            return -1;
-        }
-        return index;
+    private static boolean inRect(double mouseX, double mouseY, int x, int y, int w, int h) {
+        return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
     }
 
-    private boolean inStopZone(double mouseX, double mouseY) {
-        double dx = mouseX - centerX();
-        double dy = mouseY - centerY();
-        return dx * dx + dy * dy < DEAD_ZONE_RADIUS * DEAD_ZONE_RADIUS;
+    private void playClickSound() {
+        this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == 1) {
-            // 右键：取消
+        if (button != 0) {
+            // 右键不关屏（对齐 YSM）
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
+        int centerX = centerX();
+        int centerY = centerY();
+        // 中心停止按钮
+        if (inRect(mouseX, mouseY, centerX + STOP_X, centerY + STOP_Y, STOP_W, STOP_H)) {
+            playClickSound();
+            // animationKey 依约定传 "empty"，服务端只看 stop 标志
+            NetworkHandler.sendToServer(new C2SPlayStatueAnimationPacket(this.corePos, "empty", true));
             this.onClose();
             return true;
         }
-        if (button == 0) {
-            if (inStopZone(mouseX, mouseY)) {
-                // 中心：停止动作（animationKey 依 D5 约定传 "empty"，服务端只看 stop 标志）
-                NetworkHandler.sendToServer(new C2SPlayStatueAnimationPacket(this.corePos, "empty", true));
-                this.onClose();
+        // 页码按钮（多于 1 页才有点击区）
+        int pages = RouletteLayout.pageCount(this.entries.size());
+        if (pages > 1) {
+            if (inRect(mouseX, mouseY, centerX + PREV_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE)) {
+                this.page = Math.floorMod(this.page - 1, pages);
+                playClickSound();
                 return true;
             }
-            int index = hoveredIndex(mouseX, mouseY);
-            if (index >= 0) {
-                RouletteEntry entry = currentPageEntries().get(index);
-                NetworkHandler.sendToServer(new C2SPlayStatueAnimationPacket(this.corePos, entry.key(), false));
-                this.onClose();
+            if (inRect(mouseX, mouseY, centerX + NEXT_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE)) {
+                this.page = Math.floorMod(this.page + 1, pages);
+                playClickSound();
                 return true;
             }
-            // 左键点轮盘外空白：取消
+        }
+        // 扇区选择：几何悬停下标需对应当前页真实条目
+        int index = RouletteLayout.hoveredIndex(mouseX - centerX, mouseY - centerY);
+        List<RouletteEntry> pageEntries = currentPageEntries();
+        if (index >= 0 && index < pageEntries.size()) {
+            RouletteEntry entry = pageEntries.get(index);
+            playClickSound();
+            NetworkHandler.sendToServer(new C2SPlayStatueAnimationPacket(this.corePos, entry.key(), false));
             this.onClose();
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        // 点轮盘外空白不关屏（对齐 YSM）
+        return true;
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
         int pages = RouletteLayout.pageCount(this.entries.size());
-        if (pages > 1) {
+        if (pages > 1 && mouseX < centerX() + SCROLL_X_LIMIT) {
             this.page = Math.floorMod(this.page + (delta < 0 ? 1 : -1), pages);
+            playClickSound();
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, delta);
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(graphics);
-
-        // 标题：屏名 + 模型 id
-        Component title = Component.translatable("gui.tlm_statue_animation.roulette.title");
-        graphics.drawCenteredString(this.font, title, centerX(), centerY() - ringRadius() - BOX_HEIGHT - 18, COLOR_TITLE);
-        graphics.drawCenteredString(this.font, this.modelId, centerX(), centerY() - ringRadius() - BOX_HEIGHT - 8, COLOR_TEXT);
-
-        List<RouletteEntry> pageEntries = currentPageEntries();
-        int hovered = hoveredIndex(mouseX, mouseY);
-
-        // 扇区条目盒：沿圆周均布
-        int ring = ringRadius();
-        for (int i = 0; i < pageEntries.size(); i++) {
-            double angle = Math.PI * 2 * i / pageEntries.size();
-            // 与 angleToIndex 同一约定：0 在 12 点钟，顺时针
-            int boxCenterX = centerX() + (int) Math.round(ring * Math.sin(angle));
-            int boxCenterY = centerY() - (int) Math.round(ring * Math.cos(angle));
-            int x0 = boxCenterX - BOX_WIDTH / 2;
-            int y0 = boxCenterY - BOX_HEIGHT / 2;
-            graphics.fill(x0, y0, x0 + BOX_WIDTH, y0 + BOX_HEIGHT, i == hovered ? COLOR_BOX_HOVER : COLOR_BOX);
-            graphics.drawCenteredString(this.font, fit(pageEntries.get(i).displayName()), boxCenterX, boxCenterY - 4, COLOR_TEXT);
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // 再按一次轮盘键关屏；ESC 走 Screen 默认
+        if (StatueAnimationKeys.OPEN_STATUE_ROULETTE.matches(keyCode, scanCode)) {
+            this.onClose();
+            return true;
         }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
 
-        // 中心停止区
-        int stopColor = inStopZone(mouseX, mouseY) ? COLOR_STOP_HOVER : COLOR_STOP;
-        graphics.fill(centerX() - DEAD_ZONE_RADIUS, centerY() - DEAD_ZONE_RADIUS / 2,
-                centerX() + DEAD_ZONE_RADIUS, centerY() + DEAD_ZONE_RADIUS / 2, stopColor);
-        graphics.drawCenteredString(this.font, Component.translatable("gui.tlm_statue_animation.roulette.stop"),
-                centerX(), centerY() - 4, COLOR_TEXT);
-
-        // 页码指示（多于一页时）
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // 不调用 renderBackground：轮盘浮在游戏画面上
+        int centerX = centerX();
+        int centerY = centerY();
+        renderRadialBackground(graphics, mouseX, mouseY, centerX, centerY);
+        renderRadialButtons(graphics, centerX, centerY);
+        renderStopButton(graphics, mouseX, mouseY, centerX, centerY);
         int pages = RouletteLayout.pageCount(this.entries.size());
         if (pages > 1) {
-            Component pageText = Component.translatable("gui.tlm_statue_animation.roulette.page", this.page + 1, pages);
-            graphics.drawCenteredString(this.font, pageText, centerX(), centerY() + ringRadius() + BOX_HEIGHT, COLOR_TEXT);
+            renderPageControls(graphics, mouseX, mouseY, centerX, centerY, pages);
         }
-
         super.render(graphics, mouseX, mouseY, partialTick);
     }
 
-    /** 显示名过长时截断，保证不出条目盒 */
-    private String fit(String displayName) {
-        int maxWidth = BOX_WIDTH - 8;
-        if (this.font.width(displayName) <= maxWidth) {
-            return displayName;
+    /** 8 个环形扇段：POSITION_COLOR QUADS，悬停段琥珀色且外半径扩大 */
+    private void renderRadialBackground(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY) {
+        int hovered = RouletteLayout.hoveredIndex(mouseX - centerX, mouseY - centerY);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        Matrix4f matrix4f = graphics.pose().last().pose();
+        Tesselator tesselator = Tesselator.getInstance();
+        BufferBuilder bufferBuilder = tesselator.getBuilder();
+        bufferBuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        for (int i = 0; i < RouletteLayout.ITEMS_PER_PAGE; i++) {
+            float startAngle = (float) RouletteLayout.sectorStartAngle(i);
+            float endAngle = (float) RouletteLayout.sectorEndAngle(i);
+            boolean hover = i == hovered;
+            int color = hover ? COLOR_SEGMENT_HOVER : COLOR_SEGMENT;
+            float outerR = hover ? OUTER_RADIUS_HOVER : OUTER_RADIUS;
+            drawRadialSegment(bufferBuilder, matrix4f, centerX, centerY, startAngle, endAngle, INNER_RADIUS, outerR, color);
         }
-        return this.font.plainSubstrByWidth(displayName, maxWidth - this.font.width("…")) + "…";
+        tesselator.end();
+        RenderSystem.disableBlend();
+    }
+
+    /** 四顶点环段（外/外、内/内、内/内、外/外），角度 0 在 3 点钟方向、随 y 向下顺时针递增 */
+    private static void drawRadialSegment(BufferBuilder bufferBuilder, Matrix4f matrix4f, float centerX, float centerY,
+                                          float startAngle, float endAngle, float innerR, float outerR, int color) {
+        int r = color >> 16 & 0xFF;
+        int g = color >> 8 & 0xFF;
+        int b = color & 0xFF;
+        int a = color >>> 24;
+        bufferBuilder.vertex(matrix4f, centerX + outerR * Mth.cos(startAngle), centerY + outerR * Mth.sin(startAngle), 0).color(r, g, b, a).endVertex();
+        bufferBuilder.vertex(matrix4f, centerX + innerR * Mth.cos(startAngle), centerY + innerR * Mth.sin(startAngle), 0).color(r, g, b, a).endVertex();
+        bufferBuilder.vertex(matrix4f, centerX + innerR * Mth.cos(endAngle), centerY + innerR * Mth.sin(endAngle), 0).color(r, g, b, a).endVertex();
+        bufferBuilder.vertex(matrix4f, centerX + outerR * Mth.cos(endAngle), centerY + outerR * Mth.sin(endAngle), 0).color(r, g, b, a).endVertex();
+    }
+
+    /** 扇段标签：圆心半径 65，自动换行，多行向上错开 */
+    private void renderRadialButtons(GuiGraphics graphics, int centerX, int centerY) {
+        List<RouletteEntry> pageEntries = currentPageEntries();
+        for (int i = 0; i < pageEntries.size(); i++) {
+            float angle = (float) RouletteLayout.sectorCenterAngle(i);
+            int x = centerX + (int) (LABEL_RADIUS * Mth.cos(angle));
+            int labelY = centerY + (int) (LABEL_RADIUS * Mth.sin(angle)) - this.font.lineHeight / 2;
+            List<FormattedCharSequence> lines = this.font.split(Component.literal(pageEntries.get(i).displayName()), LABEL_WRAP_WIDTH);
+            if (lines.size() == 1) {
+                graphics.drawCenteredString(this.font, lines.get(0), x, labelY, COLOR_LABEL);
+            } else {
+                int lineY = labelY - lines.size() * this.font.lineHeight + 2;
+                for (FormattedCharSequence line : lines) {
+                    graphics.drawCenteredString(this.font, line, x, lineY, COLOR_LABEL);
+                    lineY += this.font.lineHeight;
+                }
+            }
+        }
+    }
+
+    /** 中心停止按钮：YSM FlatColorButton 扁平风，悬停变亮 */
+    private void renderStopButton(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY) {
+        boolean hover = inRect(mouseX, mouseY, centerX + STOP_X, centerY + STOP_Y, STOP_W, STOP_H);
+        graphics.fill(centerX + STOP_X, centerY + STOP_Y,
+                centerX + STOP_X + STOP_W, centerY + STOP_Y + STOP_H,
+                hover ? COLOR_FLAT_BUTTON_HOVER : COLOR_FLAT_BUTTON);
+        graphics.drawCenteredString(this.font, Component.translatable("gui.tlm_statue_animation.roulette.stop"),
+                centerX, centerY - this.font.lineHeight / 2, COLOR_LABEL);
+    }
+
+    /** 右侧页码控件：< 按钮、页码信息条（AQUA "x/y"）、> 按钮，与停止按钮同一扁平风 */
+    private void renderPageControls(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY, int pages) {
+        boolean prevHover = inRect(mouseX, mouseY, centerX + PREV_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE);
+        boolean nextHover = inRect(mouseX, mouseY, centerX + NEXT_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE);
+        graphics.fill(centerX + PREV_X, centerY + PAGE_BTN_Y,
+                centerX + PREV_X + PAGE_BTN_SIZE, centerY + PAGE_BTN_Y + PAGE_BTN_SIZE,
+                prevHover ? COLOR_FLAT_BUTTON_HOVER : COLOR_FLAT_BUTTON);
+        graphics.fill(centerX + NEXT_X, centerY + PAGE_BTN_Y,
+                centerX + NEXT_X + PAGE_BTN_SIZE, centerY + PAGE_BTN_Y + PAGE_BTN_SIZE,
+                nextHover ? COLOR_FLAT_BUTTON_HOVER : COLOR_FLAT_BUTTON);
+        graphics.drawCenteredString(this.font, "<", centerX + PREV_X + PAGE_BTN_SIZE / 2,
+                centerY + PAGE_BTN_Y + PAGE_BTN_SIZE / 2 - this.font.lineHeight / 2, COLOR_LABEL);
+        graphics.drawCenteredString(this.font, ">", centerX + NEXT_X + PAGE_BTN_SIZE / 2,
+                centerY + PAGE_BTN_Y + PAGE_BTN_SIZE / 2 - this.font.lineHeight / 2, COLOR_LABEL);
+        graphics.fill(centerX + PAGE_BAR_LEFT, centerY + PAGE_BAR_TOP,
+                centerX + PAGE_BAR_RIGHT, centerY + PAGE_BAR_BOTTOM, COLOR_PAGE_BAR);
+        graphics.drawCenteredString(this.font, (this.page + 1) + "/" + pages,
+                centerX + (PAGE_BAR_LEFT + PAGE_BAR_RIGHT) / 2,
+                centerY + (PAGE_BAR_TOP + PAGE_BAR_BOTTOM) / 2 - this.font.lineHeight / 2, COLOR_PAGE_TEXT);
     }
 }
