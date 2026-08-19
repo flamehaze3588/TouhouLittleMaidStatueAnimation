@@ -8,11 +8,14 @@ import com.tlmstatueanimation.TlmStatueAnimation;
 import java.io.IOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -57,8 +60,59 @@ public final class YsmModelScanner {
             } catch (IOException e) {
                 TlmStatueAnimation.LOGGER.debug("Skip ysm model root {}: {}", root, e.toString());
             }
+            // 压缩包模型（生产环境 custom 目录实测存在 .zip 模型）：打开 zip 文件系统找 ysm.json
+            try (Stream<Path> walk = Files.walk(root)) {
+                walk.filter(path -> {
+                            String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                            return Files.isRegularFile(path) && (name.endsWith(".zip") || name.endsWith(".ysm"));
+                        })
+                        .forEach(pack -> parsePack(root, pack, locale, result));
+            } catch (IOException e) {
+                TlmStatueAnimation.LOGGER.debug("Skip ysm pack scan in {}: {}", root, e.toString());
+            }
         }
         return result;
+    }
+
+    /**
+     * 解析压缩包模型：以 zip 文件系统打开，找其中的 ysm.json。
+     * modelId 候选注册多个变体（YSM 官方对压缩包 modelId 的推导规则未见公开证据，故宽进）：
+     * 包内相对目录路径、"压缩包文件名(去扩展名)/包内路径"、以及包内路径为空时的文件名变体。
+     * 注意：.ysm 单文件若为 YsmCrypt 加密格式则解析会失败并被跳过（已知限制，见文档 D1）。
+     */
+    private static void parsePack(Path root, Path pack, String locale, Map<String, List<AnimEntry>> result) {
+        String fileName = pack.getFileName().toString();
+        String baseName = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+        try (FileSystem zipFs = FileSystems.newFileSystem(pack, (ClassLoader) null)) {
+            for (Path zipRoot : zipFs.getRootDirectories()) {
+                try (Stream<Path> walk = Files.walk(zipRoot)) {
+                    // zip 根目录 "/" 的 getFileName() 为 null，判空过滤
+                    walk.filter(path -> path.getFileName() != null && path.getFileName().toString().equals("ysm.json"))
+                            .forEach(ysmJson -> {
+                                try {
+                                    String innerDir = zipRoot.relativize(ysmJson.getParent()).toString()
+                                            .replace('\\', '/');
+                                    List<AnimEntry> animations = parseModel(ysmJson, locale);
+                                    if (animations.isEmpty()) {
+                                        return;
+                                    }
+                                    if (!innerDir.isEmpty()) {
+                                        result.putIfAbsent(innerDir, animations);
+                                        result.putIfAbsent(baseName + "/" + innerDir, animations);
+                                    } else {
+                                        result.putIfAbsent(baseName, animations);
+                                        result.putIfAbsent(fileName, animations);
+                                    }
+                                } catch (Exception e) {
+                                    TlmStatueAnimation.LOGGER.debug("Skip broken ysm model in pack {}: {}", pack, e.toString());
+                                }
+                            });
+                }
+            }
+        } catch (Exception e) {
+            // 加密 .ysm 或损坏 zip：跳过
+            TlmStatueAnimation.LOGGER.debug("Skip ysm pack {}: {}", pack, e.toString());
+        }
     }
 
     private static void parseOne(Path root, Path ysmJson, String locale, Map<String, List<AnimEntry>> result) {

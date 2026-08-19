@@ -5,6 +5,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -144,5 +146,27 @@ class YsmModelScannerTest {
 
         assertEquals(1, result.get("fox").size());
         assertEquals("自定义版", result.get("fox").get(0).displayName());
+    }
+
+    @Test
+    void zipPackModelIsScannedWithCandidateIds() throws IOException {
+        Path custom = tempDir.resolve("custom");
+        Files.createDirectories(custom);
+        // zip 内嵌一层目录的模型
+        Path zipFile = custom.resolve("testmaid.zip");
+        try (FileSystem zipFs = FileSystems.newFileSystem(zipFile, Map.of("create", "true"))) {
+            Path inner = zipFs.getPath("/testmaid");
+            Files.createDirectories(inner);
+            Files.writeString(inner.resolve("ysm.json"), """
+                    { "spec": 2, "properties": { "extra_animation": { "extra0": "跳舞" } } }
+                    """, StandardCharsets.UTF_8);
+        }
+
+        Map<String, List<YsmModelScanner.AnimEntry>> result = YsmModelScanner.scan(List.of(custom), "zh_cn");
+
+        // 包内相对路径与 "文件名/包内路径" 两种候选都可命中
+        assertTrue(result.containsKey("testmaid"));
+        assertTrue(result.containsKey("testmaid/testmaid"));
+        assertEquals("跳舞", result.get("testmaid").get(0).displayName());
     }
 }

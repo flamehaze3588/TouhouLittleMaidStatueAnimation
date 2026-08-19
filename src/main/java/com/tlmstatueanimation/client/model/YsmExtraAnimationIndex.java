@@ -1,5 +1,6 @@
 package com.tlmstatueanimation.client.model;
 
+import com.tlmstatueanimation.TlmStatueAnimation;
 import com.tlmstatueanimation.client.gui.RouletteEntry;
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.fml.loading.FMLPaths;
@@ -32,14 +33,17 @@ public final class YsmExtraAnimationIndex {
     public static synchronized void refresh() {
         Path ysmDir = FMLPaths.GAMEDIR.get().resolve("config").resolve("yes_steve_model");
         String locale = Minecraft.getInstance().options.languageCode;
-        // 顺序即覆盖优先级：玩家自定义 > 授权模型 > 内置模型
-        List<Path> roots = List.of(ysmDir.resolve("custom"), ysmDir.resolve("auth"), ysmDir.resolve("built"));
+        // 顺序即覆盖优先级：玩家自定义 > 授权模型 > 内置模型。
+        // 注意：官方 2.6.5 生产环境的内置目录名实测为 "builtin"（OpenYSM 源码写作 "built"），两者都扫。
+        List<Path> roots = List.of(ysmDir.resolve("custom"), ysmDir.resolve("auth"),
+                ysmDir.resolve("builtin"), ysmDir.resolve("built"));
         Map<String, List<YsmModelScanner.AnimEntry>> scannedModels = YsmModelScanner.scan(roots, locale);
         Map<String, List<RouletteEntry>> newIndex = new LinkedHashMap<>();
         scannedModels.forEach((modelId, animations) -> newIndex.put(modelId,
                 animations.stream().map(a -> new RouletteEntry(a.key(), a.displayName())).toList()));
         index = newIndex;
         scanned = true;
+        TlmStatueAnimation.LOGGER.info("YSM extra animation index refreshed: {} models indexed", newIndex.size());
     }
 
     private static void ensureScanned() {

@@ -1,11 +1,13 @@
 package com.tlmstatueanimation.client;
 
 import com.tlmstatueanimation.MaidNbtTags;
+import com.tlmstatueanimation.TlmStatueAnimation;
 import com.tlmstatueanimation.client.gui.RouletteEntry;
 import com.tlmstatueanimation.client.gui.StatueAnimationRouletteScreen;
 import com.tlmstatueanimation.client.model.YsmExtraAnimationIndex;
 import com.tlmstatueanimation.client.targeting.StatueRef;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 
 import java.util.List;
 
@@ -20,6 +22,13 @@ public final class StatueRouletteOpener {
         String modelId = ref.maidNbt().getString(MaidNbtTags.YSM_MODEL_ID);
         List<RouletteEntry> entries = YsmExtraAnimationIndex.lookup(modelId);
         if (entries.isEmpty()) {
+            // 雕像是 YSM 模型但动作表查无此 modelId：给玩家可见反馈，便于排查（模型目录扫描盲区/格式不符）
+            TlmStatueAnimation.LOGGER.info("No extra animations indexed for statue model id: {}", modelId);
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null) {
+                mc.player.displayClientMessage(
+                        Component.translatable("chat.tlm_statue_animation.no_animations", modelId), true);
+            }
             return;
         }
         Minecraft.getInstance().setScreen(new StatueAnimationRouletteScreen(ref.corePos(), modelId, entries));
