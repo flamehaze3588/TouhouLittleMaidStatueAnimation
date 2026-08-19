@@ -1,7 +1,8 @@
 buildscript {
-    repositories {
+repositories {
         maven { url = 'https://maven.minecraftforge.net' }
         maven { url = 'https://maven.parchmentmc.org' }
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
         maven {
             // 阿里云镜像，方便国内开发
             url = uri("https://maven.aliyun.com/repository/public/")
@@ -12,12 +13,14 @@ buildscript {
     dependencies {
         classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '[6.0.16,6.2)', changing: true
         classpath 'org.parchmentmc:librarian:1.+'
+        classpath group: 'org.spongepowered', name: 'mixingradle', version: '0.7-SNAPSHOT'
     }
 }
 
 apply plugin: 'eclipse'
 apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'org.parchmentmc.librarian.forgegradle'
+apply plugin: 'org.spongepowered.mixin'
 apply plugin: 'java'
 apply plugin: 'idea'
 
@@ -55,6 +58,11 @@ minecraft {
     }
 }
 
+mixin {
+    add sourceSets.main, "tlm_statue_animation.refmap.json"
+    config "tlm_statue_animation.mixins.json"
+}
+
 repositories {
     // 本地 libs 文件夹：前置 mod 的 jar（TLM 必需、YSM 仅供编译期引用）
     // 注意：YSM 2.x 为闭源 Mod，无公开 Maven 坐标，故一律走本地 jar；
@@ -85,6 +93,8 @@ dependencies {
     // 单元测试（JUnit 5）
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 }
 
 // 让单元测试能访问 Minecraft/Forge/前置 mod 的类（如 CompoundTag、BlockPos）
