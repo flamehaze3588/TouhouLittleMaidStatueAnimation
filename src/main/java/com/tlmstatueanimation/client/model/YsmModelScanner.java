@@ -4,6 +4,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.tlmstatueanimation.TlmStatueAnimation;
+import com.tlmstatueanimation.client.model.ysmfile.YsmBinaryModelWalker;
+import com.tlmstatueanimation.client.model.ysmfile.YsmFileDecryptor;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -21,11 +23,12 @@ import java.util.stream.Stream;
 
 /**
  * YSM 模型目录扫描器（D1，纯逻辑，无 MC 依赖，可单测）：
- * 扫描 config/yes_steve_model/{built,custom,auth} 下的文件夹模型（含 ysm.json），
- * 解析 properties.extra_animation 构建 modelId → 轮盘动作列表 索引。
+ * 扫描 config/yes_steve_model/{built,custom,auth} 下的文件夹模型（含 ysm.json）、
+ * zip 包模型与 .ysm 加密单文件模型，解析 properties.extra_animation 构建
+ * modelId → 轮盘动作列表 索引。
  * <p>
  * 已知限制（与文档 D1 一致，首版不支持）：
- * .ysm 加密单文件、properties.extra_animation_classify 子菜单、
+ * properties.extra_animation_classify 子菜单、
  * 服务器同步模型（cache/client 下为会话密钥加密，无法离线解析）。
  */
 public final class YsmModelScanner {
@@ -60,13 +63,19 @@ public final class YsmModelScanner {
             } catch (IOException e) {
                 TlmStatueAnimation.LOGGER.debug("Skip ysm model root {}: {}", root, e.toString());
             }
-            // 压缩包模型（生产环境 custom 目录实测存在 .zip 模型）：打开 zip 文件系统找 ysm.json
+            // 压缩包/单文件模型：.zip 走 zip 文件系统找 ysm.json；.ysm 走 YsmCrypt 解密 + 二进制走读
             try (Stream<Path> walk = Files.walk(root)) {
                 walk.filter(path -> {
                             String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
                             return Files.isRegularFile(path) && (name.endsWith(".zip") || name.endsWith(".ysm"));
                         })
-                        .forEach(pack -> parsePack(root, pack, locale, result));
+                        .forEach(pack -> {
+                            if (pack.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".ysm")) {
+                                parseYsmFile(root, pack, locale, result);
+                            } else {
+                                parsePack(root, pack, locale, result);
+                            }
+                        });
             } catch (IOException e) {
                 TlmStatueAnimation.LOGGER.debug("Skip ysm pack scan in {}: {}", root, e.toString());
             }
@@ -78,7 +87,7 @@ public final class YsmModelScanner {
      * 解析压缩包模型：以 zip 文件系统打开，找其中的 ysm.json。
      * modelId 候选注册多个变体（YSM 官方对压缩包 modelId 的推导规则未见公开证据，故宽进）：
      * 包内相对目录路径、"压缩包文件名(去扩展名)/包内路径"、以及包内路径为空时的文件名变体。
-     * 注意：.ysm 单文件若为 YsmCrypt 加密格式则解析会失败并被跳过（已知限制，见文档 D1）。
+     * 注意：本方法仅处理 .zip；.ysm 加密单文件由 {@link #parseYsmFile} 处理。
      */
     private static void parsePack(Path root, Path pack, String locale, Map<String, List<AnimEntry>> result) {
         String fileName = pack.getFileName().toString();
@@ -110,8 +119,49 @@ public final class YsmModelScanner {
                 }
             }
         } catch (Exception e) {
-            // 加密 .ysm 或损坏 zip：跳过
+            // 损坏 zip：跳过
             TlmStatueAnimation.LOGGER.debug("Skip ysm pack {}: {}", pack, e.toString());
+        }
+    }
+
+    /**
+     * 解析 .ysm 加密单文件模型：YsmCrypt 解密 → zstd 解压 → 二进制走读（format >= 16）。
+     * modelId 以「相对扫描根的路径（含 .ysm 后缀，'/' 分隔）」为主注册——实测雕像 NBT 中
+     * 这类模型的 modelId 即带后缀（如 "小女仆抱枕2.6.ysm"）；同时 putIfAbsent 一个
+     * 去后缀变体兜底。显示名优先取内嵌语言表中当前 locale 的
+     * "properties.extra_animation.&lt;key&gt;"，缺失回退默认显示名。
+     * 解密/走读失败（crypto 版本不支持、format < 4、文件损坏等）只跳过该文件。
+     */
+    private static void parseYsmFile(Path root, Path file, String locale, Map<String, List<AnimEntry>> result) {
+        try {
+            byte[] decrypted = YsmFileDecryptor.decryptYsmFile(Files.readAllBytes(file));
+            YsmBinaryModelWalker.YsmModelData data = YsmBinaryModelWalker.walk(decrypted);
+            if (data.extraAnimations().isEmpty()) {
+                return;
+            }
+            Map<String, String> lang = data.languageFiles().get(locale);
+            List<AnimEntry> animations = new ArrayList<>();
+            for (Map.Entry<String, String> entry : data.extraAnimations().entrySet()) {
+                String key = entry.getKey();
+                String displayName = entry.getValue();
+                if (lang != null) {
+                    String localized = lang.get("properties.extra_animation." + key);
+                    if (localized != null) {
+                        displayName = localized;
+                    }
+                }
+                animations.add(new AnimEntry(key, displayName));
+            }
+            String modelId = root.relativize(file).toString().replace('\\', '/');
+            result.putIfAbsent(modelId, animations);
+            String lowerName = file.getFileName().toString().toLowerCase(Locale.ROOT);
+            if (lowerName.endsWith(".ysm")) {
+                // 去后缀兜底变体（截断 modelId 末尾的 ".ysm"）
+                result.putIfAbsent(modelId.substring(0, modelId.length() - 4), animations);
+            }
+        } catch (Exception e) {
+            // 加密版本不支持/格式过旧/文件损坏：跳过该文件
+            TlmStatueAnimation.LOGGER.debug("Skip ysm file {}: {}", file, e.toString());
         }
     }
 

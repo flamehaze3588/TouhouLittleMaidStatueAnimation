@@ -14,6 +14,7 @@ repositories {
         classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '[6.0.16,6.2)', changing: true
         classpath 'org.parchmentmc:librarian:1.+'
         classpath group: 'org.spongepowered', name: 'mixingradle', version: '0.7-SNAPSHOT'
+        classpath 'gradle.plugin.com.github.johnrengelman:shadow:7.1.2'
     }
 }
 
@@ -23,6 +24,7 @@ apply plugin: 'org.parchmentmc.librarian.forgegradle'
 apply plugin: 'org.spongepowered.mixin'
 apply plugin: 'java'
 apply plugin: 'idea'
+apply plugin: 'com.github.johnrengelman.shadow'
 
 version = mod_version
 group = mod_group_id
@@ -63,6 +65,14 @@ mixin {
     config "tlm_statue_animation.mixins.json"
 }
 
+configurations {
+    // 自定义一个 mcLib，挂到 minecraftLibrary 上，方便引入需要 Shadow 进最终 jar 的库
+    mcLib
+    minecraftLibrary {
+        extendsFrom mcLib
+    }
+}
+
 repositories {
     // 本地 libs 文件夹：前置 mod 的 jar（TLM 必需、YSM 仅供编译期引用）
     // 注意：YSM 2.x 为闭源 Mod，无公开 Maven 坐标，故一律走本地 jar；
@@ -76,6 +86,11 @@ repositories {
             includeGroup "maven.modrinth"
         }
     }
+    // 阿里云镜像（国内可达）+ mavenCentral：解析 io.airlift:aircompressor 等普通依赖
+    maven {
+        url = uri("https://maven.aliyun.com/repository/public/")
+    }
+    mavenCentral()
 }
 
 dependencies {
@@ -89,6 +104,11 @@ dependencies {
     // 注意：Yes Steve Model 2.x 官方 jar 经 ProGuard 混淆（类名全部 O/0 化），无法编译期引用其类。
     // 本附属 mod 对 YSM 零编译依赖，运行时是否装载由 mods.toml 的 mandatory 依赖声明保证；
     // 开发调试（runClient）需把 ysm-2.6.5-forge+mc1.20.1.jar 放入 run/client/mods（libs/ 中已备）。
+
+    // 纯 Java zstd 解压（.ysm 模型解密后用），Shadow 进最终 jar 并 relocate。
+    // 注：Maven Central 上 zstd 的纯 Java 实现坐标是 io.airlift:aircompressor
+    //（io.airlift:zstd 不存在），包名 io.airlift.compress.zstd。
+    mcLib "io.airlift:aircompressor:0.27"
 
     // 单元测试（JUnit 5）
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
@@ -126,6 +146,19 @@ jar {
                 "Implementation-Vendor" : mod_group_id
         ])
     }
+}
+
+// 主产物：含 mcLib 依赖（aircompressor）的 shadowJar，io.airlift 重定位防冲突
+shadowJar {
+    configurations = [project.configurations.mcLib]
+
+    relocate 'io.airlift', 'com.tlmstatueanimation.libs.airlift'
+
+    mergeServiceFiles()
+}
+
+reobf {
+    shadowJar {}
 }
 
 tasks.withType(JavaCompile).configureEach {
