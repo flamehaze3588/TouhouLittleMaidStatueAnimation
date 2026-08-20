@@ -22,13 +22,15 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 /**
- * YSM 模型目录扫描器（D1，纯逻辑，无 MC 依赖，可单测）：
+ * YSM 模型目录扫描器（D1/D2，纯逻辑，无 MC 依赖，可单测）：
  * 扫描 config/yes_steve_model/{built,custom,auth} 下的文件夹模型（含 ysm.json）、
- * zip 包模型与 .ysm 加密单文件模型，解析 properties.extra_animation 构建
- * modelId → 轮盘动作列表 索引。
+ * zip 包模型与 .ysm 加密单文件模型，解析 properties.extra_animation 与
+ * properties.extra_animation_classify 构建 modelId → 轮盘动作数据（根表 + 子菜单表）索引。
  * <p>
- * 已知限制（与文档 D1 一致，首版不支持）：
- * properties.extra_animation_classify 子菜单、
+ * 过滤规则：value 以 '#' 开头的条目是 YSM molang 配置按钮（本 mod 不支持），整条丢弃；
+ * key 以 '#' 开头的条目是子菜单入口（'#return' 为返回上一级），保留。
+ * <p>
+ * 已知限制（与文档 D1 一致）：
  * 服务器同步模型（cache/client 下为会话密钥加密，无法离线解析）。
  */
 public final class YsmModelScanner {
@@ -37,7 +39,7 @@ public final class YsmModelScanner {
     }
 
     /**
-     * @param key         动作 key（传给 TLM playRouletteAnim / 写 NBT 用）
+     * @param key         动作 key（传给 TLM playRouletteAnim / 写 NBT 用；'#' 前缀 = 子菜单入口）
      * @param displayName 显示名（本地化后）
      */
     public record AnimEntry(String key, String displayName) {
@@ -49,10 +51,10 @@ public final class YsmModelScanner {
      *
      * @param roots  扫描根（不存在的根跳过）
      * @param locale 本地化语言代码（如 zh_cn），用于读取 lang/&lt;locale&gt;.json 覆盖显示名
-     * @return modelId → 动作列表（保持 ysm.json 中的声明顺序），无动作的模型不收录
+     * @return modelId → 动作数据（根表 + classify 子菜单表，保持 ysm.json 中的声明顺序），无动作的模型不收录
      */
-    public static Map<String, List<AnimEntry>> scan(List<Path> roots, String locale) {
-        Map<String, List<AnimEntry>> result = new LinkedHashMap<>();
+    public static Map<String, ModelAnimations> scan(List<Path> roots, String locale) {
+        Map<String, ModelAnimations> result = new LinkedHashMap<>();
         for (Path root : roots) {
             if (root == null || !Files.isDirectory(root)) {
                 continue;
@@ -89,7 +91,7 @@ public final class YsmModelScanner {
      * 包内相对目录路径、"压缩包文件名(去扩展名)/包内路径"、以及包内路径为空时的文件名变体。
      * 注意：本方法仅处理 .zip；.ysm 加密单文件由 {@link #parseYsmFile} 处理。
      */
-    private static void parsePack(Path root, Path pack, String locale, Map<String, List<AnimEntry>> result) {
+    private static void parsePack(Path root, Path pack, String locale, Map<String, ModelAnimations> result) {
         String fileName = pack.getFileName().toString();
         String baseName = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
         try (FileSystem zipFs = FileSystems.newFileSystem(pack, (ClassLoader) null)) {
@@ -101,7 +103,7 @@ public final class YsmModelScanner {
                                 try {
                                     String innerDir = zipRoot.relativize(ysmJson.getParent()).toString()
                                             .replace('\\', '/');
-                                    List<AnimEntry> animations = parseModel(ysmJson, locale);
+                                    ModelAnimations animations = parseModel(ysmJson, locale);
                                     if (animations.isEmpty()) {
                                         return;
                                     }
@@ -129,28 +131,20 @@ public final class YsmModelScanner {
      * modelId 以「相对扫描根的路径（含 .ysm 后缀，'/' 分隔）」为主注册——实测雕像 NBT 中
      * 这类模型的 modelId 即带后缀（如 "小女仆抱枕2.6.ysm"）；同时 putIfAbsent 一个
      * 去后缀变体兜底。显示名优先取内嵌语言表中当前 locale 的
-     * "properties.extra_animation.&lt;key&gt;"，缺失回退默认显示名。
+     * "properties.extra_animation.&lt;key&gt;"，缺失回退默认显示名（子菜单表同规则）。
      * 解密/走读失败（crypto 版本不支持、format < 4、文件损坏等）只跳过该文件。
      */
-    private static void parseYsmFile(Path root, Path file, String locale, Map<String, List<AnimEntry>> result) {
+    private static void parseYsmFile(Path root, Path file, String locale, Map<String, ModelAnimations> result) {
         try {
             byte[] decrypted = YsmFileDecryptor.decryptYsmFile(Files.readAllBytes(file));
             YsmBinaryModelWalker.YsmModelData data = YsmBinaryModelWalker.walk(decrypted);
-            if (data.extraAnimations().isEmpty()) {
-                return;
-            }
             Map<String, String> lang = data.languageFiles().get(locale);
-            List<AnimEntry> animations = new ArrayList<>();
-            for (Map.Entry<String, String> entry : data.extraAnimations().entrySet()) {
-                String key = entry.getKey();
-                String displayName = entry.getValue();
-                if (lang != null) {
-                    String localized = lang.get("properties.extra_animation." + key);
-                    if (localized != null) {
-                        displayName = localized;
-                    }
-                }
-                animations.add(new AnimEntry(key, displayName));
+            List<AnimEntry> rootEntries = localizeTable(data.extraAnimations(), lang);
+            Map<String, List<AnimEntry>> submenus = new LinkedHashMap<>();
+            data.extraAnimationClassify().forEach((id, table) -> submenus.put(id, localizeTable(table, lang)));
+            ModelAnimations animations = new ModelAnimations(rootEntries, submenus);
+            if (animations.isEmpty()) {
+                return;
             }
             String modelId = root.relativize(file).toString().replace('\\', '/');
             result.putIfAbsent(modelId, animations);
@@ -165,12 +159,12 @@ public final class YsmModelScanner {
         }
     }
 
-    private static void parseOne(Path root, Path ysmJson, String locale, Map<String, List<AnimEntry>> result) {
+    private static void parseOne(Path root, Path ysmJson, String locale, Map<String, ModelAnimations> result) {
         try {
             Path modelDir = ysmJson.getParent();
             // modelId = 目录相对扫描根的路径，统一 '/' 分隔（D1）
             String modelId = root.relativize(modelDir).toString().replace('\\', '/');
-            List<AnimEntry> animations = parseModel(ysmJson, locale);
+            ModelAnimations animations = parseModel(ysmJson, locale);
             if (!animations.isEmpty()) {
                 result.putIfAbsent(modelId, animations);
             }
@@ -181,31 +175,93 @@ public final class YsmModelScanner {
     }
 
     /**
-     * 解析单个 ysm.json：properties.extra_animation（key → 默认显示名，保持声明顺序），
-     * 再尝试用同目录 lang/&lt;locale&gt;.json 的 "properties.extra_animation.&lt;key&gt;" 覆盖显示名。
+     * 解析单个 ysm.json：properties.extra_animation（根表）与 properties.extra_animation_classify
+     * （[{id, extra_animation: {...}}]，子表可再嵌套 '#id' 入口），再尝试用同目录
+     * lang/&lt;locale&gt;.json 的 "properties.extra_animation.&lt;key&gt;" 覆盖显示名（根表与子表同表）。
      */
-    static List<AnimEntry> parseModel(Path ysmJson, String locale) throws IOException {
+    static ModelAnimations parseModel(Path ysmJson, String locale) throws IOException {
         JsonObject root;
         try (Reader reader = Files.newBufferedReader(ysmJson, StandardCharsets.UTF_8)) {
             root = JsonParser.parseReader(reader).getAsJsonObject();
         }
         if (!root.has("properties") || !root.get("properties").isJsonObject()) {
-            return List.of();
+            return ModelAnimations.EMPTY;
         }
         JsonObject properties = root.getAsJsonObject("properties");
-        if (!properties.has("extra_animation") || !properties.get("extra_animation").isJsonObject()) {
-            return List.of();
-        }
-        JsonObject extraAnimation = properties.getAsJsonObject("extra_animation");
         JsonObject lang = readLang(ysmJson.getParent(), locale);
 
+        List<AnimEntry> rootEntries = parseAnimationTable(
+                properties.has("extra_animation") && properties.get("extra_animation").isJsonObject()
+                        ? properties.getAsJsonObject("extra_animation") : null, lang);
+        Map<String, List<AnimEntry>> submenus = parseClassify(properties, lang);
+        if (rootEntries.isEmpty() && submenus.isEmpty()) {
+            return ModelAnimations.EMPTY;
+        }
+        return new ModelAnimations(rootEntries, submenus);
+    }
+
+    /** extra_animation_classify：[{id, extra_animation: {...}}]；格式不符的元素跳过 */
+    private static Map<String, List<AnimEntry>> parseClassify(JsonObject properties, JsonObject lang) {
+        Map<String, List<AnimEntry>> submenus = new LinkedHashMap<>();
+        JsonElement classify = properties.get("extra_animation_classify");
+        if (classify == null || !classify.isJsonArray()) {
+            return submenus;
+        }
+        for (JsonElement element : classify.getAsJsonArray()) {
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            JsonObject classifyEntry = element.getAsJsonObject();
+            if (!classifyEntry.has("id") || !classifyEntry.get("id").isJsonPrimitive()) {
+                continue;
+            }
+            String id = classifyEntry.get("id").getAsString();
+            JsonObject table = classifyEntry.has("extra_animation") && classifyEntry.get("extra_animation").isJsonObject()
+                    ? classifyEntry.getAsJsonObject("extra_animation") : null;
+            submenus.put(id, parseAnimationTable(table, lang));
+        }
+        return submenus;
+    }
+
+    /**
+     * 解析一张 extra_animation 表（根表或 classify 子表）：保持声明顺序，
+     * value 以 '#' 开头的配置按钮条目整条丢弃，key 以 '#' 开头的子菜单入口保留。
+     */
+    private static List<AnimEntry> parseAnimationTable(JsonObject table, JsonObject lang) {
         List<AnimEntry> animations = new ArrayList<>();
-        for (Map.Entry<String, JsonElement> entry : extraAnimation.entrySet()) {
+        if (table == null) {
+            return animations;
+        }
+        for (Map.Entry<String, JsonElement> entry : table.entrySet()) {
             String key = entry.getKey();
             String displayName = entry.getValue().getAsString();
+            if (displayName.startsWith("#")) {
+                // molang 配置按钮（value 为 '#' + 配置 id），本 mod 不支持，整条丢弃
+                continue;
+            }
             String langKey = "properties.extra_animation." + key;
             if (lang != null && lang.has(langKey) && lang.get(langKey).isJsonPrimitive()) {
                 displayName = lang.get(langKey).getAsString();
+            }
+            animations.add(new AnimEntry(key, displayName));
+        }
+        return animations;
+    }
+
+    /** 二进制走读产出的表做同一套过滤 + 本地化（lang 为内嵌语言表当前 locale 分表，可空） */
+    private static List<AnimEntry> localizeTable(Map<String, String> table, Map<String, String> lang) {
+        List<AnimEntry> animations = new ArrayList<>();
+        for (Map.Entry<String, String> entry : table.entrySet()) {
+            String key = entry.getKey();
+            String displayName = entry.getValue();
+            if (displayName.startsWith("#")) {
+                continue;
+            }
+            if (lang != null) {
+                String localized = lang.get("properties.extra_animation." + key);
+                if (localized != null) {
+                    displayName = localized;
+                }
             }
             animations.add(new AnimEntry(key, displayName));
         }

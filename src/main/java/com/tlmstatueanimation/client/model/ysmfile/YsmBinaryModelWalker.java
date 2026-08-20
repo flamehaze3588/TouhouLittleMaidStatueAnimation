@@ -8,24 +8,28 @@ import java.util.Map;
  * YSMBinaryDeserializer 的完整走读器：deserializeModern（format >= 16）分支逐字节对应
  * 参考反序列化器；legacy V15（format 4~15）分支参照 OpenYSM/YSMParser（C++ 版，
  * deserializeLegacyV15）移植——二进制流顺序变长，所有段都必须按格式走读，
- * 不需要的数据读后即弃，仅保留 extraAnimations（key → 默认显示名，保持声明顺序）与
- * languageFiles（locale → (lang key → value)，用于动作显示名本地化；legacy V15 流中
+ * 不需要的数据读后即弃，仅保留 extraAnimations（key → 默认显示名，保持声明顺序）、
+ * extraAnimationClassify（子菜单 id → 有序 key→默认名；format <= 9 的二进制没有该段，恒为空表）
+ * 与 languageFiles（locale → (lang key → value)，用于动作显示名本地化；legacy V15 流中
  * 没有语言文件段，恒为空表）。
  * legacy V1（format < 4）直接抛异常，由调用方跳过。
  */
 public final class YsmBinaryModelWalker {
 
     /**
-     * @param extraAnimations 轮盘动作：key → 默认显示名（LinkedHashMap，保持声明顺序）
-     * @param languageFiles   locale → (lang key → value)
+     * @param extraAnimations        轮盘动作：key → 默认显示名（LinkedHashMap，保持声明顺序）
+     * @param extraAnimationClassify 子菜单表：classify id → （key → 默认显示名，保持声明顺序）
+     * @param languageFiles          locale → (lang key → value)
      */
     public record YsmModelData(LinkedHashMap<String, String> extraAnimations,
+                               Map<String, LinkedHashMap<String, String>> extraAnimationClassify,
                                Map<String, Map<String, String>> languageFiles) {
     }
 
     private final YsmByteReader reader;
     private final int format;
     private final LinkedHashMap<String, String> extraAnimations = new LinkedHashMap<>();
+    private final Map<String, LinkedHashMap<String, String>> extraAnimationClassify = new LinkedHashMap<>();
     private final Map<String, Map<String, String>> languageFiles = new LinkedHashMap<>();
 
     private YsmBinaryModelWalker(byte[] decompressedData) {
@@ -48,7 +52,7 @@ public final class YsmBinaryModelWalker {
         } else {
             walker.deserializeModern();
         }
-        return new YsmModelData(walker.extraAnimations, walker.languageFiles);
+        return new YsmModelData(walker.extraAnimations, walker.extraAnimationClassify, walker.languageFiles);
     }
 
     // ============ legacy V15 格式（format 4 ~ 15，移植自 OpenYSM/YSMParser 的 deserializeLegacyV15）============
@@ -287,7 +291,7 @@ public final class YsmBinaryModelWalker {
         reader.readVarInt(); // footerPad3
     }
 
-    /** 关键目标段：extraAnimations 在这里；其后 buttons/classify 等仍需走读 */
+    /** 关键目标段：extraAnimations 与 classify 在这里；buttons（molang 配置面板）只走读不保留 */
     private void parseYSMJson() {
         reader.readString(); // properties sha256
         int isNewVersionYsm = reader.readVarInt();
@@ -354,12 +358,13 @@ public final class YsmBinaryModelWalker {
 
             int extraAnimationClassifyCount = reader.readVarInt();
             for (int i = 0; i < extraAnimationClassifyCount; i++) {
-                reader.readString(); // classify id
+                String classifyId = reader.readString();
+                LinkedHashMap<String, String> entries = new LinkedHashMap<>();
                 int classificationExtrasCount = reader.readVarInt();
                 for (int j = 0; j < classificationExtrasCount; j++) {
-                    reader.readString(); // extra key
-                    reader.readString(); // extra value
+                    entries.put(reader.readString(), reader.readString()); // extra key → 默认显示名
                 }
+                extraAnimationClassify.put(classifyId, entries);
             }
         }
 

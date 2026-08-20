@@ -6,8 +6,11 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.tlmstatueanimation.client.StatueAnimationKeys;
+import com.tlmstatueanimation.client.model.ModelAnimations;
+import com.tlmstatueanimation.client.model.YsmModelScanner;
 import com.tlmstatueanimation.network.NetworkHandler;
 import com.tlmstatueanimation.network.message.C2SPlayStatueAnimationPacket;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.GameRenderer;
@@ -26,6 +29,11 @@ import java.util.List;
  * 轮盘中心偏左（右侧放页码控件区），不暗化背景，轮盘浮在游戏画面上；
  * 左键点扇区=播放，点中心停止钮=停止，滚轮/页码按钮翻页，ESC/轮盘键关屏；
  * 点轮盘外空白与右键均不关屏。打开时游戏不暂停（isPauseScreen=false）。
+ * <p>
+ * classify 子菜单（对齐 YSM 2.6.5 navigationStack）：'#' 前缀键条目为子菜单入口
+ *（标签红色渲染），点击进入并压栈（页码归 0，最深 5 级）；'#return' 键条目与右侧
+ * "返回"按钮弹栈回上一层（栈底再返回 = 关屏）；子菜单内右上画面包屑 "a > b"（id 原文）；
+ * 每层页码独立记忆。导航状态机在 {@link RouletteNavigation}（纯逻辑，可单测）。
  */
 public class StatueAnimationRouletteScreen extends Screen {
     /** 轮盘中心相对屏幕中心的偏移（偏左，右侧留给页码控件） */
@@ -59,6 +67,14 @@ public class StatueAnimationRouletteScreen extends Screen {
     /** 滚轮翻页仅在此 x 界限左侧生效（相对轮盘中心） */
     private static final int SCROLL_X_LIMIT = 110;
 
+    /** 返回按钮（相对轮盘中心：x+125, y-70, 145x22）；面包屑文字（相对轮盘中心：x+195, y-100） */
+    private static final int RETURN_X = 125;
+    private static final int RETURN_Y = -70;
+    private static final int RETURN_W = 145;
+    private static final int RETURN_H = 22;
+    private static final int BREADCRUMB_X = 195;
+    private static final int BREADCRUMB_Y = -100;
+
     private static final int COLOR_SEGMENT = 0x90000000;
     private static final int COLOR_SEGMENT_HOVER = 0xF0FFB100;
     private static final int COLOR_LABEL = 0xF3EFE0;
@@ -69,15 +85,13 @@ public class StatueAnimationRouletteScreen extends Screen {
 
     private final BlockPos corePos;
     private final String modelId;
-    private final List<RouletteEntry> entries;
-    private int page;
+    private final RouletteNavigation nav;
 
-    public StatueAnimationRouletteScreen(BlockPos corePos, String modelId, List<RouletteEntry> entries) {
+    public StatueAnimationRouletteScreen(BlockPos corePos, String modelId, ModelAnimations animations) {
         super(Component.empty());
         this.corePos = corePos;
         this.modelId = modelId;
-        this.entries = entries;
-        this.page = 0;
+        this.nav = new RouletteNavigation(animations);
     }
 
     @Override
@@ -93,8 +107,8 @@ public class StatueAnimationRouletteScreen extends Screen {
         return this.height / 2 + CENTER_OFFSET_Y;
     }
 
-    private List<RouletteEntry> currentPageEntries() {
-        return RouletteLayout.pageEntries(this.entries, this.page);
+    private List<YsmModelScanner.AnimEntry> currentPageEntries() {
+        return RouletteLayout.pageEntries(this.nav.currentEntries(), this.nav.currentPage());
     }
 
     private static boolean inRect(double mouseX, double mouseY, int x, int y, int w, int h) {
@@ -103,6 +117,14 @@ public class StatueAnimationRouletteScreen extends Screen {
 
     private void playClickSound() {
         this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+    }
+
+    /** 返回上一级；已在根层则关屏（栈底再返回 = 关屏，对齐 YSM） */
+    private void navigateBack() {
+        playClickSound();
+        if (!this.nav.back()) {
+            this.onClose();
+        }
     }
 
     @Override
@@ -121,27 +143,45 @@ public class StatueAnimationRouletteScreen extends Screen {
             this.onClose();
             return true;
         }
+        // 右侧返回按钮（任何层都可点；根层点击 = 关屏）
+        if (inRect(mouseX, mouseY, centerX + RETURN_X, centerY + RETURN_Y, RETURN_W, RETURN_H)) {
+            navigateBack();
+            return true;
+        }
         // 页码按钮（多于 1 页才有点击区）
-        int pages = RouletteLayout.pageCount(this.entries.size());
+        int pages = RouletteLayout.pageCount(this.nav.currentEntries().size());
         if (pages > 1) {
             if (inRect(mouseX, mouseY, centerX + PREV_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE)) {
-                this.page = Math.floorMod(this.page - 1, pages);
+                this.nav.setPage(Math.floorMod(this.nav.currentPage() - 1, pages));
                 playClickSound();
                 return true;
             }
             if (inRect(mouseX, mouseY, centerX + NEXT_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE)) {
-                this.page = Math.floorMod(this.page + 1, pages);
+                this.nav.setPage(Math.floorMod(this.nav.currentPage() + 1, pages));
                 playClickSound();
                 return true;
             }
         }
         // 扇区选择：几何悬停下标需对应当前页真实条目
         int index = RouletteLayout.hoveredIndex(mouseX - centerX, mouseY - centerY);
-        List<RouletteEntry> pageEntries = currentPageEntries();
+        List<YsmModelScanner.AnimEntry> pageEntries = currentPageEntries();
         if (index >= 0 && index < pageEntries.size()) {
-            RouletteEntry entry = pageEntries.get(index);
+            YsmModelScanner.AnimEntry entry = pageEntries.get(index);
+            String key = entry.key();
+            if ("#return".equals(key)) {
+                // 模型作者自加的返回条目：返回上一级（栈底再返回 = 关屏）
+                navigateBack();
+                return true;
+            }
+            if (key.startsWith("#")) {
+                // 子菜单入口：id 有效且未超深才压栈进入，否则忽略（不发包不导航不播音）
+                if (this.nav.enter(key.substring(1))) {
+                    playClickSound();
+                }
+                return true;
+            }
             playClickSound();
-            NetworkHandler.sendToServer(new C2SPlayStatueAnimationPacket(this.corePos, entry.key(), false));
+            NetworkHandler.sendToServer(new C2SPlayStatueAnimationPacket(this.corePos, key, false));
             this.onClose();
             return true;
         }
@@ -151,9 +191,9 @@ public class StatueAnimationRouletteScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        int pages = RouletteLayout.pageCount(this.entries.size());
+        int pages = RouletteLayout.pageCount(this.nav.currentEntries().size());
         if (pages > 1 && mouseX < centerX() + SCROLL_X_LIMIT) {
-            this.page = Math.floorMod(this.page + (delta < 0 ? 1 : -1), pages);
+            this.nav.setPage(Math.floorMod(this.nav.currentPage() + (delta < 0 ? 1 : -1), pages));
             playClickSound();
             return true;
         }
@@ -178,7 +218,9 @@ public class StatueAnimationRouletteScreen extends Screen {
         renderRadialBackground(graphics, mouseX, mouseY, centerX, centerY);
         renderRadialButtons(graphics, centerX, centerY);
         renderStopButton(graphics, mouseX, mouseY, centerX, centerY);
-        int pages = RouletteLayout.pageCount(this.entries.size());
+        renderReturnButton(graphics, mouseX, mouseY, centerX, centerY);
+        renderBreadcrumb(graphics, centerX, centerY);
+        int pages = RouletteLayout.pageCount(this.nav.currentEntries().size());
         if (pages > 1) {
             renderPageControls(graphics, mouseX, mouseY, centerX, centerY, pages);
         }
@@ -220,14 +262,20 @@ public class StatueAnimationRouletteScreen extends Screen {
         bufferBuilder.vertex(matrix4f, centerX + outerR * Mth.cos(endAngle), centerY + outerR * Mth.sin(endAngle), 0).color(r, g, b, a).endVertex();
     }
 
-    /** 扇段标签：圆心半径 65，自动换行，多行向上错开 */
+    /** 扇段标签：圆心半径 65，自动换行，多行向上错开；'#' 前缀的子菜单条目红色渲染（对齐 YSM） */
     private void renderRadialButtons(GuiGraphics graphics, int centerX, int centerY) {
-        List<RouletteEntry> pageEntries = currentPageEntries();
+        List<YsmModelScanner.AnimEntry> pageEntries = currentPageEntries();
         for (int i = 0; i < pageEntries.size(); i++) {
             float angle = (float) RouletteLayout.sectorCenterAngle(i);
             int x = centerX + (int) (LABEL_RADIUS * Mth.cos(angle));
             int labelY = centerY + (int) (LABEL_RADIUS * Mth.sin(angle)) - this.font.lineHeight / 2;
-            List<FormattedCharSequence> lines = this.font.split(Component.literal(pageEntries.get(i).displayName()), LABEL_WRAP_WIDTH);
+            YsmModelScanner.AnimEntry entry = pageEntries.get(i);
+            Component label = Component.literal(entry.displayName());
+            if (entry.key().startsWith("#")) {
+                // 子菜单条目红色渲染（对齐 YSM withStyle(ChatFormatting.RED)；§ 颜色码照常生效）
+                label = Component.literal(entry.displayName()).withStyle(ChatFormatting.RED);
+            }
+            List<FormattedCharSequence> lines = this.font.split(label, LABEL_WRAP_WIDTH);
             if (lines.size() == 1) {
                 graphics.drawCenteredString(this.font, lines.get(0), x, labelY, COLOR_LABEL);
             } else {
@@ -250,6 +298,25 @@ public class StatueAnimationRouletteScreen extends Screen {
                 centerX, centerY - this.font.lineHeight / 2, COLOR_LABEL);
     }
 
+    /** 右侧返回按钮：145x22 扁平风（与停止/页码按钮同款），栈底点击 = 关屏 */
+    private void renderReturnButton(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY) {
+        boolean hover = inRect(mouseX, mouseY, centerX + RETURN_X, centerY + RETURN_Y, RETURN_W, RETURN_H);
+        graphics.fill(centerX + RETURN_X, centerY + RETURN_Y,
+                centerX + RETURN_X + RETURN_W, centerY + RETURN_Y + RETURN_H,
+                hover ? COLOR_FLAT_BUTTON_HOVER : COLOR_FLAT_BUTTON);
+        graphics.drawCenteredString(this.font, Component.translatable("gui.tlm_statue_animation.roulette.return"),
+                centerX + RETURN_X + RETURN_W / 2, centerY + RETURN_Y + (RETURN_H - this.font.lineHeight) / 2, COLOR_LABEL);
+    }
+
+    /** 子菜单面包屑："id1 > id2"（id 原文，根 → 当前层）；根层（无上级）不画 */
+    private void renderBreadcrumb(GuiGraphics graphics, int centerX, int centerY) {
+        if (this.nav.isRoot()) {
+            return;
+        }
+        graphics.drawCenteredString(this.font, String.join(" > ", this.nav.breadcrumb()),
+                centerX + BREADCRUMB_X, centerY + BREADCRUMB_Y, COLOR_LABEL);
+    }
+
     /** 右侧页码控件：< 按钮、页码信息条（AQUA "x/y"）、> 按钮，与停止按钮同一扁平风 */
     private void renderPageControls(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY, int pages) {
         boolean prevHover = inRect(mouseX, mouseY, centerX + PREV_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE);
@@ -266,7 +333,7 @@ public class StatueAnimationRouletteScreen extends Screen {
                 centerY + PAGE_BTN_Y + PAGE_BTN_SIZE / 2 - this.font.lineHeight / 2, COLOR_LABEL);
         graphics.fill(centerX + PAGE_BAR_LEFT, centerY + PAGE_BAR_TOP,
                 centerX + PAGE_BAR_RIGHT, centerY + PAGE_BAR_BOTTOM, COLOR_PAGE_BAR);
-        graphics.drawCenteredString(this.font, (this.page + 1) + "/" + pages,
+        graphics.drawCenteredString(this.font, (this.nav.currentPage() + 1) + "/" + pages,
                 centerX + (PAGE_BAR_LEFT + PAGE_BAR_RIGHT) / 2,
                 centerY + (PAGE_BAR_TOP + PAGE_BAR_BOTTOM) / 2 - this.font.lineHeight / 2, COLOR_PAGE_TEXT);
     }
