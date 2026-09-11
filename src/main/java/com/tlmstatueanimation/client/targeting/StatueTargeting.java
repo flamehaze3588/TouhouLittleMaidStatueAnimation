@@ -7,6 +7,7 @@ import net.minecraft.world.phys.BlockHitResult;
 
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * 准星雕像检测纯逻辑核心（D3），面向抽象编程：
@@ -43,18 +44,32 @@ public final class StatueTargeting {
      * @return 非雕像方块、NBT 缺失、非 YSM 模型时返回 {@link Optional#empty()}
      */
     public static Optional<StatueRef> resolve(BlockHitResult hit, Function<BlockPos, BlockProbe> probe) {
-        BlockProbe hitProbe = probe.apply(hit.getBlockPos());
+        return resolve(hit.getBlockPos(), probe, StatueTargeting::isYsmMaidNbt);
+    }
+
+    /**
+     * moreanimation 软联动用的解析变体：遍历规则与 {@link #resolve} 相同，
+     * 但不过滤 YSM 模型——moreanimation 的表情/动作对 TLM 默认 bedrock 模型也生效，
+     * 只要求 maidNbt 非 null。
+     */
+    public static Optional<StatueRef> resolveAnyMaid(BlockPos pos, Function<BlockPos, BlockProbe> probe) {
+        return resolve(pos, probe, nbt -> true);
+    }
+
+    private static Optional<StatueRef> resolve(BlockPos hitPos, Function<BlockPos, BlockProbe> probe,
+                                               Predicate<CompoundTag> maidNbtFilter) {
+        BlockProbe hitProbe = probe.apply(hitPos);
         if (hitProbe == null) {
             return Optional.empty();
         }
         if (hitProbe.isGarageKit()) {
-            return filter(hit.getBlockPos(), StatueRef.Kind.GARAGE_KIT, hitProbe.maidNbt());
+            return filter(hitPos, StatueRef.Kind.GARAGE_KIT, hitProbe.maidNbt(), maidNbtFilter);
         }
         if (!hitProbe.isStatue()) {
             return Optional.empty();
         }
         if (hitProbe.isCoreStatue()) {
-            return filter(hit.getBlockPos(), StatueRef.Kind.STATUE, hitProbe.maidNbt());
+            return filter(hitPos, StatueRef.Kind.STATUE, hitProbe.maidNbt(), maidNbtFilter);
         }
         BlockPos corePos = hitProbe.corePos();
         if (corePos == null) {
@@ -64,19 +79,19 @@ public final class StatueTargeting {
         if (coreProbe == null || !coreProbe.isStatue()) {
             return Optional.empty();
         }
-        return filter(corePos, StatueRef.Kind.STATUE, coreProbe.maidNbt());
+        return filter(corePos, StatueRef.Kind.STATUE, coreProbe.maidNbt(), maidNbtFilter);
     }
 
-    private static Optional<StatueRef> filter(BlockPos corePos, StatueRef.Kind kind, CompoundTag maidNbt) {
-        if (maidNbt == null) {
-            return Optional.empty();
-        }
-        if (!maidNbt.getBoolean(MaidNbtTags.IS_YSM_MODEL)) {
-            return Optional.empty();
-        }
-        if (maidNbt.getString(MaidNbtTags.YSM_MODEL_ID).isEmpty()) {
+    private static Optional<StatueRef> filter(BlockPos corePos, StatueRef.Kind kind, CompoundTag maidNbt,
+                                              Predicate<CompoundTag> maidNbtFilter) {
+        if (maidNbt == null || !maidNbtFilter.test(maidNbt)) {
             return Optional.empty();
         }
         return Optional.of(new StatueRef(corePos, kind, maidNbt));
+    }
+
+    private static boolean isYsmMaidNbt(CompoundTag maidNbt) {
+        return maidNbt.getBoolean(MaidNbtTags.IS_YSM_MODEL)
+                && !maidNbt.getString(MaidNbtTags.YSM_MODEL_ID).isEmpty();
     }
 }

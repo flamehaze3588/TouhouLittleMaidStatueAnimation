@@ -8,7 +8,8 @@ import net.minecraft.nbt.CompoundTag;
  *
  * @param corePos 核心块坐标（手办为单方块，即自身坐标）
  * @param kind    雕像或手办
- * @param maidNbt 核心块（或手办）上的女仆 extra NBT，已通过 YSM 过滤
+ * @param maidNbt 核心块（或手办）上的女仆 extra NBT，已按调用方语义过滤
+ *               （YSM 轮盘：IsYsmModel；moreanimation 联动：仅要求非空）
  */
 public record StatueRef(BlockPos corePos, Kind kind, CompoundTag maidNbt) {
 
