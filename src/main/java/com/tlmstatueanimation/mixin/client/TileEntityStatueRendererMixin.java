@@ -4,6 +4,7 @@ import com.github.tartaricacid.touhoulittlemaid.api.client.render.MaidRenderStat
 import com.github.tartaricacid.touhoulittlemaid.client.renderer.tileentity.TileEntityStatueRenderer;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityStatue;
+import com.tlmstatueanimation.compat.moreanimation.MoreAnimationNbtKeys;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
@@ -47,5 +48,32 @@ public abstract class TileEntityStatueRendererMixin {
             return;
         }
         maid.renderState = original;
+    }
+
+    /**
+     * moreanimation 联动（§8.12）：TLM 对非 YSM 雕像强制 tickCount=0（定格第 0 帧），
+     * geckolib 动画时间 = entity.tickCount + partialTick，导致 TLM 皮肤包雕像的
+     * moreanimation 表情/动作即使写进 NBT 也停在第 0 帧（关键帧动作完全不动）。
+     * 此处重定向 renderEntity 中唯一的 isYsmModel() 调用（tickCount 定格判定条件的一部分）：
+     * 当假女仆 ForgeData 中存在 moreanimation 活跃状态（表情无过期 / 一次性动作未过期）时
+     * 视同 YSM 模型处理（tickCount=gameTime，动画解冻播放）；否则维持原判定。
+     * 该分支内只有 tickCount 赋值一个动作，无其他副作用；目标是 TLM 自有方法，remap=false。
+     */
+    @Redirect(method = "renderEntity",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/github/tartaricacid/touhoulittlemaid/entity/passive/EntityMaid;isYsmModel()Z"),
+            remap = false)
+    private boolean tlmStatueAnimation$unfreezeForMoreAnimation(EntityMaid maid,
+                                                                TileEntityStatue te, PoseStack poseStack,
+                                                                MultiBufferSource bufferIn, int combinedLightIn,
+                                                                CompoundTag data, Level world, EntityType<?> type) {
+        if (maid.isYsmModel()) {
+            return true;
+        }
+        CompoundTag persistentData = maid.getPersistentData();
+        boolean moreAnimationActive = !persistentData.getString(MoreAnimationNbtKeys.EXPRESSION).isEmpty()
+                || (persistentData.contains(MoreAnimationNbtKeys.ACTIVE)
+                && persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL) > world.getGameTime());
+        return moreAnimationActive;
     }
 }
