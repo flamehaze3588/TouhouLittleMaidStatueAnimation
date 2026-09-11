@@ -101,9 +101,13 @@ dependencies {
     // 见 docs/TLM-YSM-Linkage-Principle.md §8.4）
     compileOnly fg.deobf("libs:touhoulittlemaid:${tlm_version}")
 
-    // 注意：Yes Steve Model 2.x 官方 jar 经 ProGuard 混淆（类名全部 O/0 化），无法编译期引用其类。
+    // Yes Steve Model 2.x 官方 jar 经 ProGuard 混淆（类名全部 O/0 化），无法编译期引用其类。
     // 本附属 mod 对 YSM 零编译依赖，运行时是否装载由 mods.toml 的 mandatory 依赖声明保证；
     // 开发调试（runClient）需把 ysm-2.6.5-forge+mc1.20.1.jar 放入 run/client/mods（libs/ 中已备）。
+
+    // 酒狐更多动画（可选软联动）：开源未混淆，编译期引用其 MaidAnimationData 等公开 API；
+    // 运行时缺席时所有引用点都在 MoreAnimationCompat.isLoaded() 门控之后，不会类加载。
+    compileOnly fg.deobf("libs:moreanimation:1.20.1-forge-1.1.0")
 
     // 纯 Java zstd 解压（.ysm 模型解密后用），Shadow 进最终 jar 并 relocate。
     // 注：Maven Central 上 zstd 的纯 Java 实现坐标是 io.airlift:aircompressor
