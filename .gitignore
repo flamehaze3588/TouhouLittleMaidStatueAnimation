@@ -6,6 +6,7 @@ bin
 .classpath
 .project
 .factorypath
+docs/
 
 # idea
 out
