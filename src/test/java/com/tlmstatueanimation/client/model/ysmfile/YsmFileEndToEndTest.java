@@ -14,11 +14,13 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * .ysm 加密单文件模型端到端测试：真实 fixture（src/test/resources/test-model.ysm，
  * 用户实测所用格式）走 解密 → zstd 解压 → 二进制走读 → 扫描器接入 全链路。
- * 该文件为第三方作者的模型，仅作测试 fixture，禁止外传。
+ * 该文件为第三方作者的付费模型，仅作本机测试 fixture，不入库、禁止外传；
+ * 因此 fixture 缺失时本测试类整体跳过（assumeTrue），不影响 CI/公开仓库构建。
  * <p>
  * fixture 的 extraAnimations 根表为 [huhupeizhi, 找不到狐找不到狐, #H_d_c, 招手]，
  * 其中 "#H_d_c" 为 classify 子菜单入口。
@@ -27,7 +29,7 @@ class YsmFileEndToEndTest {
 
     private static byte[] readFixture() throws IOException {
         try (InputStream in = YsmFileEndToEndTest.class.getResourceAsStream("/test-model.ysm")) {
-            assertNotNull(in, "test fixture test-model.ysm missing from test resources");
+            assumeTrue(in != null, "local-only paid model fixture test-model.ysm absent; skipping");
             return in.readAllBytes();
         }
     }

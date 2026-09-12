@@ -38,3 +38,6 @@ build-exit.txt
 
 logs/
 test-log.txt
+
+# 第三方付费模型测试 fixture，禁止入库/外传（本地保留，缺失时端到端测试自动跳过）
+src/test/resources/test-model.ysm
