@@ -14,6 +14,8 @@ public final class MaidNbtTags {
     public static final String YSM_ROULETTE_ANIM = "YsmRouletteAnim";
     /** 本附属 mod 自定义的播放标志（TLM 的 rouletteAnimPlaying 不持久化，见文档 §5.5 D5/D6） */
     public static final String STATUE_ROULETTE_PLAYING = "StatueRoulettePlaying";
+    /** 原版 TamableAnimal 的坐姿持久化键（TLM 女仆继承）；load 时据此恢复坐下姿势 */
+    public static final String SITTING = "Sitting";
 
     private MaidNbtTags() {
     }
