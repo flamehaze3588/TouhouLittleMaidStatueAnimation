@@ -5,6 +5,7 @@ import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityStatue;
 import com.tlmstatueanimation.TlmStatueAnimation;
 import com.tlmstatueanimation.compat.moreanimation.MoreAnimationCompat;
 import com.tlmstatueanimation.compat.moreanimation.MoreAnimationNbtKeys;
+import com.tlmstatueanimation.server.StatueActionPhaseTicker;
 import com.tlmstatueanimation.server.StatueForgeDataMerge;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -122,5 +123,10 @@ public record C2SStatueExpressionPacket(BlockPos corePos, CompoundTag setKeys, L
                     MoreAnimationCompat.duration(action), MoreAnimationCompat.playPriorityFor(action));
         }
         StatueForgeDataMerge.apply(maidNbt, this.setKeys, this.removeKeys);
+        // 两阶段动作（tastetail→eattail）的接力由服务端 tick 补全（§8.15）：登记本雕像
+        if (this.setKeys.contains(MoreAnimationNbtKeys.ACTIVE, Tag.TAG_STRING)
+                && !this.setKeys.getString(MoreAnimationNbtKeys.ACTIVE).isEmpty()) {
+            StatueActionPhaseTicker.track(level, this.corePos);
+        }
     }
 }

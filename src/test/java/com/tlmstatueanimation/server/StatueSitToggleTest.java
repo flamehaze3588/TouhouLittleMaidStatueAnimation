@@ -37,4 +37,22 @@ class StatueSitToggleTest {
         assertEquals("ysm:default", nbt.getString(MaidNbtTags.YSM_MODEL_ID));
         assertTrue(nbt.getBoolean(MaidNbtTags.STATUE_ROULETTE_PLAYING));
     }
+
+    @Test
+    void toggleInteractiveMarksPoseControl() {
+        CompoundTag nbt = new CompoundTag();
+        assertTrue(StatueSitToggle.toggleInteractive(nbt));
+        assertTrue(nbt.getBoolean(MaidNbtTags.STATUE_POSE_INTERACTIVE),
+                "交互切换必须打上姿势控制标记（§8.17：YSM 雕像脱离内置 statue 姿势）");
+        // 再次切换（回站姿）标记保持
+        assertFalse(StatueSitToggle.toggleInteractive(nbt));
+        assertTrue(nbt.getBoolean(MaidNbtTags.STATUE_POSE_INTERACTIVE));
+    }
+
+    @Test
+    void plainToggleDoesNotMark() {
+        CompoundTag nbt = new CompoundTag();
+        StatueSitToggle.toggle(nbt);
+        assertFalse(nbt.contains(MaidNbtTags.STATUE_POSE_INTERACTIVE));
+    }
 }

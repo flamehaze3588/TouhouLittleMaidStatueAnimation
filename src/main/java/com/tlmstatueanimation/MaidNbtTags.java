@@ -16,6 +16,11 @@ public final class MaidNbtTags {
     public static final String STATUE_ROULETTE_PLAYING = "StatueRoulettePlaying";
     /** 原版 TamableAnimal 的坐姿持久化键（TLM 女仆继承）；load 时据此恢复坐下姿势 */
     public static final String SITTING = "Sitting";
+    /**
+     * 本附属 mod 自定义标记（§8.17）：蹲下+右键切换过姿势的 YSM 雕像脱离内置 "statue" 姿势，
+     * 走与真实女仆一致的渲染链（普通站姿/坐姿）；仅客户端渲染读取，不影响真女仆
+     */
+    public static final String STATUE_POSE_INTERACTIVE = "StatuePoseInteractive";
 
     private MaidNbtTags() {
     }

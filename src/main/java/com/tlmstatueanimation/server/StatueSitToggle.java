@@ -25,4 +25,16 @@ public final class StatueSitToggle {
         maidNbt.putBoolean(MaidNbtTags.SITTING, nowSitting);
         return nowSitting;
     }
+
+    /**
+     * 翻转坐姿并打上"姿势交互"标记（§8.17）：YSM 模型的 renderState==STATUE 会强制播放
+     * 模型内置 statue 姿势（站姿烘焙剪辑），与坐姿叠加会出现"站姿下半身入地"；
+     * 标记后渲染器 mixin 让其走 ENTITY 渲染链（普通站姿/坐姿），不再回到内置雕像姿势。
+     *
+     * @return 翻转后的状态（true = 坐姿）
+     */
+    public static boolean toggleInteractive(CompoundTag maidNbt) {
+        maidNbt.putBoolean(MaidNbtTags.STATUE_POSE_INTERACTIVE, true);
+        return toggle(maidNbt);
+    }
 }

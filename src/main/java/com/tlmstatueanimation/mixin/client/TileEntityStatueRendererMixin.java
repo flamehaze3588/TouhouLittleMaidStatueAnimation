@@ -4,7 +4,8 @@ import com.github.tartaricacid.touhoulittlemaid.api.client.render.MaidRenderStat
 import com.github.tartaricacid.touhoulittlemaid.client.renderer.tileentity.TileEntityStatueRenderer;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityStatue;
-import com.tlmstatueanimation.compat.moreanimation.MoreAnimationNbtKeys;
+import com.tlmstatueanimation.MaidNbtTags;
+import com.tlmstatueanimation.client.StatueAnimFreezeControl;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
@@ -43,7 +44,13 @@ public abstract class TileEntityStatueRendererMixin {
                                                         CompoundTag data, Level world, EntityType<?> type) {
         BlockPos pos = te.getBlockPos();
         maid.setPos(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
-        if (maid.isYsmModel() && maid.rouletteAnimPlaying) {
+        // 上一行 TLM 的 clearMaidDataResidue 每帧强制 setInSittingPose(false)（雕像恒站立的设计）；
+        // 本 mod 支持蹲下+右键切换姿势（§8.13），故按 NBT 的 Sitting 键重新声明坐姿。
+        // 坐姿翻转会触发 FreezeGraceTracker 的宽限解冻窗（§8.14），冻结雕像也能平滑切 sit/idle。
+        maid.setInSittingPose(data.getBoolean(MaidNbtTags.SITTING));
+        // §8.17：蹲下切换过姿势的 YSM 雕像脱离内置 statue 姿势（renderState=ENTITY，走真实女仆
+        // 渲染链）——否则 STATUE 状态强制的模型内置站姿剪辑会与坐姿叠加成"站姿半身入地"
+        if (maid.isYsmModel() && (maid.rouletteAnimPlaying || data.getBoolean(MaidNbtTags.STATUE_POSE_INTERACTIVE))) {
             maid.renderState = MaidRenderState.ENTITY;
             return;
         }
@@ -51,13 +58,13 @@ public abstract class TileEntityStatueRendererMixin {
     }
 
     /**
-     * moreanimation 联动（§8.12）：TLM 对非 YSM 雕像强制 tickCount=0（定格第 0 帧），
-     * geckolib 动画时间 = entity.tickCount + partialTick，导致 TLM 皮肤包雕像的
-     * moreanimation 表情/动作即使写进 NBT 也停在第 0 帧（关键帧动作完全不动）。
-     * 此处重定向 renderEntity 中唯一的 isYsmModel() 调用（tickCount 定格判定条件的一部分）：
-     * 当假女仆 ForgeData 中存在 moreanimation 活跃状态（表情无过期 / 一次性动作未过期）时
-     * 视同 YSM 模型处理（tickCount=gameTime，动画解冻播放）；否则维持原判定。
-     * 该分支内只有 tickCount 赋值一个动作，无其他副作用；目标是 TLM 自有方法，remap=false。
+     * 冻结控制（§8.12/§8.14）：TLM 对非 YSM 雕像强制 tickCount=0（定格第 0 帧），
+     * geckolib 动画时间 = entity.tickCount + partialTick。
+     * 此处重定向 renderEntity 中唯一的 isYsmModel() 调用（tickCount 定格判定条件的一部分），
+     * 解冻判定委托给 StatueAnimFreezeControl：moreanimation 活跃（表情非空 / 一次性动作未过期）
+     * 恒解冻；坐姿翻转或动作刚过期的下降沿触发 10 tick 宽限解冻窗（geckolib 动画过渡需要时间
+     * 前进才能完成，单帧强制求值会导致切换不即时/骨骼残影）。该分支内只有 tickCount 赋值一个
+     * 动作，无其他副作用；目标是 TLM 自有方法，remap=false。
      */
     @Redirect(method = "renderEntity",
             at = @At(value = "INVOKE",
@@ -70,10 +77,6 @@ public abstract class TileEntityStatueRendererMixin {
         if (maid.isYsmModel()) {
             return true;
         }
-        CompoundTag persistentData = maid.getPersistentData();
-        boolean moreAnimationActive = !persistentData.getString(MoreAnimationNbtKeys.EXPRESSION).isEmpty()
-                || (persistentData.contains(MoreAnimationNbtKeys.ACTIVE)
-                && persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL) > world.getGameTime());
-        return moreAnimationActive;
+        return StatueAnimFreezeControl.shouldUnfreeze(maid, data, world);
     }
 }

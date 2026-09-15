@@ -4,6 +4,7 @@ import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityGarageKit;
 import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityStatue;
 import com.tlmstatueanimation.TlmStatueAnimation;
 import com.tlmstatueanimation.compat.moreanimation.MoreAnimationCompat;
+import com.tlmstatueanimation.server.StatueBasePose;
 import com.tlmstatueanimation.server.StatueSitToggle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -77,7 +78,9 @@ public record C2SToggleStatueSitPacket(BlockPos corePos) {
                 TlmStatueAnimation.LOGGER.debug("Ignore statue sit toggle packet: statue at {} has no maid data", this.corePos);
                 return;
             }
-            boolean sitting = StatueSitToggle.toggle(maidNbt);
+            boolean sitting = StatueSitToggle.toggleInteractive(maidNbt);
+            // §8.16：坐下时按 50% 随机抽取坐姿变体（sit2），起身清除（镜像真女仆语义）
+            StatueBasePose.roll(maidNbt, sitting, level.getRandom().nextBoolean(), level.getGameTime());
             statue.refresh();
             TlmStatueAnimation.LOGGER.debug("Statue at {} sitting toggled to {}", this.corePos, sitting);
             return;
@@ -88,7 +91,8 @@ public record C2SToggleStatueSitPacket(BlockPos corePos) {
                 TlmStatueAnimation.LOGGER.debug("Ignore statue sit toggle packet: garage kit at {} has no maid data", this.corePos);
                 return;
             }
-            boolean sitting = StatueSitToggle.toggle(maidNbt);
+            boolean sitting = StatueSitToggle.toggleInteractive(maidNbt);
+            StatueBasePose.roll(maidNbt, sitting, level.getRandom().nextBoolean(), level.getGameTime());
             garageKit.setData(garageKit.getFacing(), garageKit.getExtraData());
             TlmStatueAnimation.LOGGER.debug("Garage kit at {} sitting toggled to {}", this.corePos, sitting);
             return;

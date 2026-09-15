@@ -43,10 +43,23 @@ public final class MoreAnimationNbtKeys {
     /** 形态模式（酒狐模型强制人形/狐形），int，取值见下方 FORM_* */
     public static final String FORM_MODE = "moreanimation_form_mode";
 
+    /**
+     * 【本 mod 自有键，非 moreanimation 原生】雕像坐姿变体的记忆标记（§8.16）：
+     * 蹲下切换至坐姿时服务端 50% 随机写入 "sit2"（moreanimation 新增坐姿）；空/缺失 = 默认坐姿。
+     * 实际播放走原生 ACTIVE 通道（ACTIVE="sit2" + UNTIL=Long.MAX_VALUE），gecko 与 YSM 桥通吃；
+     * 本键用于在一次性动作过期后恢复基础姿势（见 StatueActionPhaseTicker）。
+     * 带 moreanimation_ 前缀以通过 StatueForgeDataMerge 白名单。
+     */
+    public static final String STATUE_BASE_POSE = "moreanimation_statue_base_pose";
+    /** 坐姿变体候选（镜像 moreanimation GameLostAnimation.SIT_BASE_VARIANTS 的 "sit2"） */
+    public static final String SIT_VARIANT_SIT2 = "sit2";
+
     /** 镜像 MaidAnimationData.FORM_AUTO/HUMAN/FOX（0/1/2） */
     public static final int FORM_AUTO = 0;
     public static final int FORM_HUMAN = 1;
     public static final int FORM_FOX = 2;
+    /** 镜像 MaidAnimationData.PRIORITY_RANDOM（基础姿势/随机动作的优先级） */
+    public static final int PRIORITY_RANDOM = 10;
 
     private MoreAnimationNbtKeys() {
     }

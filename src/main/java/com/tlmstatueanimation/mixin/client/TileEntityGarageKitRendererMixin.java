@@ -4,7 +4,8 @@ import com.github.tartaricacid.touhoulittlemaid.api.client.render.MaidRenderStat
 import com.github.tartaricacid.touhoulittlemaid.client.renderer.tileentity.TileEntityGarageKitRenderer;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityGarageKit;
-import com.tlmstatueanimation.compat.moreanimation.MoreAnimationNbtKeys;
+import com.tlmstatueanimation.MaidNbtTags;
+import com.tlmstatueanimation.client.StatueAnimFreezeControl;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
@@ -35,7 +36,10 @@ public abstract class TileEntityGarageKitRendererMixin {
                                                         CompoundTag data, Level world, EntityType<?> type) {
         BlockPos pos = te.getBlockPos();
         maid.setPos(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
-        if (maid.isYsmModel() && maid.rouletteAnimPlaying) {
+        // 同 TileEntityStatueRendererMixin：clearMaidDataResidue 每帧清坐姿，这里按 NBT 重新声明（§8.13）
+        maid.setInSittingPose(data.getBoolean(MaidNbtTags.SITTING));
+        // §8.17：蹲下切换过姿势的 YSM 手办脱离内置 statue 姿势（避免与坐姿叠加成"站姿半身入地"）
+        if (maid.isYsmModel() && (maid.rouletteAnimPlaying || data.getBoolean(MaidNbtTags.STATUE_POSE_INTERACTIVE))) {
             maid.renderState = MaidRenderState.ENTITY;
             return;
         }
@@ -43,9 +47,8 @@ public abstract class TileEntityGarageKitRendererMixin {
     }
 
     /**
-     * moreanimation 联动（§8.12）：同 TileEntityStatueRendererMixin 的解冻逻辑——
-     * 假女仆 ForgeData 带 moreanimation 活跃状态时视同 YSM 模型（tickCount=gameTime），
-     * 让 TLM 皮肤包手办的 moreanimation 表情/动作不再定格在第 0 帧。
+     * 冻结控制（§8.12/§8.14）：同 TileEntityStatueRendererMixin——解冻判定委托给
+     * StatueAnimFreezeControl（moreanimation 活跃恒解冻 + 状态变化宽限窗）。
      */
     @Redirect(method = "renderEntity",
             at = @At(value = "INVOKE",
@@ -58,10 +61,6 @@ public abstract class TileEntityGarageKitRendererMixin {
         if (maid.isYsmModel()) {
             return true;
         }
-        CompoundTag persistentData = maid.getPersistentData();
-        boolean moreAnimationActive = !persistentData.getString(MoreAnimationNbtKeys.EXPRESSION).isEmpty()
-                || (persistentData.contains(MoreAnimationNbtKeys.ACTIVE)
-                && persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL) > world.getGameTime());
-        return moreAnimationActive;
+        return StatueAnimFreezeControl.shouldUnfreeze(maid, data, world);
     }
 }
