@@ -37,7 +37,6 @@ public final class StatueActionPhaseTicker {
     private static final String PHASE_ONE = "tastetail";
     private static final String PHASE_TWO = "eattail";
     private static final long HANDOFF_TICKS = 45;
-    private static final long PHASE_TWO_DURATION = 100;
 
     private record TrackedKey(ResourceKey<Level> dim, BlockPos pos) {
     }
@@ -102,11 +101,11 @@ public final class StatueActionPhaseTicker {
         return PHASE_ONE.equals(active) && now < until && now - start >= HANDOFF_TICKS;
     }
 
-    /** 纯写入：把 ForgeData 改写为第二阶段（eattail，循环段，续 100 tick）。可单测。 */
+    /** 纯写入：把 ForgeData 改写为第二阶段（eattail 循环段）。UNTIL=MAX（§8.18：循环不停）。 */
     static void applyPhaseTwo(CompoundTag forgeData, long now) {
         forgeData.putString(MoreAnimationNbtKeys.ACTIVE, PHASE_TWO);
         forgeData.putLong(MoreAnimationNbtKeys.ACTIVE_START, now);
-        forgeData.putLong(MoreAnimationNbtKeys.ACTIVE_UNTIL, now + PHASE_TWO_DURATION);
+        forgeData.putLong(MoreAnimationNbtKeys.ACTIVE_UNTIL, Long.MAX_VALUE);
         // priority 沿用；lockMovement 对雕像恒 false（与 StatueForgeDataMerge.fillPlayTiming 一致）
         forgeData.putBoolean(MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT, false);
     }

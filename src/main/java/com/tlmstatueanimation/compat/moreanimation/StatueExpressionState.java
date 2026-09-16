@@ -116,6 +116,19 @@ public final class StatueExpressionState {
     }
 
     /**
+     * 雕像"停止"按钮（§8.18）：表情 + 动作全停。雕像是装饰——其动作 UNTIL=MAX 无限循环，
+     * 不会像真女仆一样自然过期，故停止必须同时清空 ACTIVE* 键。
+     * 注意不动 STATUE_BASE_POSE（记忆标记）：坐下状态停止动作后由 StatueActionPhaseTicker
+     * 恢复基础姿势（若有）。
+     */
+    public static List<String> stopAllRemoveKeys() {
+        return List.of(MoreAnimationNbtKeys.EXPRESSION,
+                MoreAnimationNbtKeys.ACTIVE, MoreAnimationNbtKeys.ACTIVE_START,
+                MoreAnimationNbtKeys.ACTIVE_UNTIL, MoreAnimationNbtKeys.ACTIVE_PRIORITY,
+                MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT);
+    }
+
+    /**
      * 立即播放一次性动作：只发动作 key；
      * start/until/priority/lock_movement 由服务端用 gameTime 与时长补齐（见 C2S 包 handler）。
      */

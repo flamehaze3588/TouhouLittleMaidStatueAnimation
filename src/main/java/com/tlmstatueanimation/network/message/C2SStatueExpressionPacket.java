@@ -115,12 +115,13 @@ public record C2SStatueExpressionPacket(BlockPos corePos, CompoundTag setKeys, L
     }
 
     private void applyWrites(ServerLevel level, CompoundTag maidNbt) {
-        // 一次性动作：客户端只发动作 key，服务端用 gameTime + moreanimation 时长/优先级补齐时间窗
+        // 动作：客户端只发动作 key，服务端补齐时间窗（§8.18：UNTIL=Long.MAX_VALUE，循环不停，
+        // 停止靠控制屏"停止"按钮或蹲下切换姿势；优先级仍取 moreanimation 的表）
         if (this.setKeys.contains(MoreAnimationNbtKeys.ACTIVE, Tag.TAG_STRING)
                 && !this.setKeys.getString(MoreAnimationNbtKeys.ACTIVE).isEmpty()) {
             String action = this.setKeys.getString(MoreAnimationNbtKeys.ACTIVE);
             StatueForgeDataMerge.fillPlayTiming(this.setKeys, level.getGameTime(),
-                    MoreAnimationCompat.duration(action), MoreAnimationCompat.playPriorityFor(action));
+                    MoreAnimationCompat.playPriorityFor(action));
         }
         StatueForgeDataMerge.apply(maidNbt, this.setKeys, this.removeKeys);
         // 两阶段动作（tastetail→eattail）的接力由服务端 tick 补全（§8.15）：登记本雕像

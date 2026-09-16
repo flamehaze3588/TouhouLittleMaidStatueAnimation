@@ -49,14 +49,15 @@ public final class StatueForgeDataMerge {
     }
 
     /**
-     * 为一次性动作补齐时间窗（服务端调用）：客户端只发动作 key，
-     * start/until 用 level.getGameTime() 与动作时长（MoreAnimationCompat.duration）在这里补齐。
-     * 时长下限 1 刻（镜像 MaidAnimationData.start 的 Math.max(1, duration)）；
+     * 为动作补齐时间窗（服务端调用）：客户端只发动作 key，start 用 level.getGameTime() 补齐。
+     * UNTIL 恒为 Long.MAX_VALUE（§8.18）：moreanimation 的动作在活跃期内本就按其
+     * isLoopingAction 循环播放，结束只因 until 过期；雕像作为装饰应让动作保持循环，
+     * 停止靠控制屏"停止"按钮（清空 ACTIVE* 键）或蹲下切换姿势。
      * lockMovement 对雕像恒 false——雕像是装饰方块实体，没有可锁的移动。
      */
-    public static void fillPlayTiming(CompoundTag setKeys, long gameTime, int durationTicks, int priority) {
+    public static void fillPlayTiming(CompoundTag setKeys, long gameTime, int priority) {
         setKeys.putLong(MoreAnimationNbtKeys.ACTIVE_START, gameTime);
-        setKeys.putLong(MoreAnimationNbtKeys.ACTIVE_UNTIL, gameTime + Math.max(1, durationTicks));
+        setKeys.putLong(MoreAnimationNbtKeys.ACTIVE_UNTIL, Long.MAX_VALUE);
         setKeys.putInt(MoreAnimationNbtKeys.ACTIVE_PRIORITY, priority);
         setKeys.putBoolean(MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT, false);
     }

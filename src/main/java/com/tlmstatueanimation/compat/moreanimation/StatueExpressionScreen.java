@@ -221,7 +221,8 @@ public class StatueExpressionScreen extends Screen {
 
     private void sendExpression(String expression) {
         if ("stop".equals(expression)) {
-            send(new CompoundTag(), StatueExpressionState.expressionStopRemoveKeys());
+            // §8.18：雕像动作无限循环，"停止"按钮对雕像语义为表情+动作全停
+            send(new CompoundTag(), StatueExpressionState.stopAllRemoveKeys());
         } else {
             send(StatueExpressionState.expressionKeys(expression), List.of());
         }

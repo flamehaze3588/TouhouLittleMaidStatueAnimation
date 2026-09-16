@@ -45,7 +45,8 @@ class StatueActionPhaseTickerTest {
         StatueActionPhaseTicker.applyPhaseTwo(forgeData, 1045);
         assertEquals("eattail", forgeData.getString(MoreAnimationNbtKeys.ACTIVE));
         assertEquals(1045, forgeData.getLong(MoreAnimationNbtKeys.ACTIVE_START));
-        assertEquals(1145, forgeData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL));
+        // §8.18：第二阶段同为无限循环
+        assertEquals(Long.MAX_VALUE, forgeData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL));
         // priority 沿用、lockMovement 恒 false
         assertEquals(20, forgeData.getInt(MoreAnimationNbtKeys.ACTIVE_PRIORITY));
         assertFalse(forgeData.getBoolean(MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT));

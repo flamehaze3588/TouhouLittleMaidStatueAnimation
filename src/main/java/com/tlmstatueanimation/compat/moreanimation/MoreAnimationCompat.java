@@ -28,9 +28,7 @@ public final class MoreAnimationCompat {
     private static final List<String> EXPRESSIONS = List.of(
             "veryangry", "wuyu", "sosad", "provoke", "lips", "sneer", "dizziness", "kuang");
 
-    /** 未安装 moreanimation 时一次性动作的兜底时长（= MaidAnimationData.duration 的 default 分支 100） */
-    private static final int DEFAULT_DURATION = 100;
-    /** 未安装 moreanimation 时一次性动作的兜底优先级（= MaidAnimationData.PRIORITY_MANUAL 20） */
+    /** 未安装 moreanimation 时动作的兜底优先级（= MaidAnimationData.PRIORITY_MANUAL 20） */
     private static final int DEFAULT_PRIORITY = 20;
 
     private MoreAnimationCompat() {
@@ -50,13 +48,8 @@ public final class MoreAnimationCompat {
         return isLoaded() ? Loaded.actions() : Map.of();
     }
 
-    /** 一次性动作时长（刻）；未安装 moreanimation 时返回兜底值 100。 */
-    public static int duration(String action) {
-        return isLoaded() ? Loaded.duration(action) : DEFAULT_DURATION;
-    }
-
     /**
-     * 一次性动作优先级（镜像 TerminalControlPacket "play" 分支：injured_kneel 用 PRIORITY_INJURED，
+     * 动作优先级（镜像 TerminalControlPacket "play" 分支：injured_kneel 用 PRIORITY_INJURED，
      * 其余用 PRIORITY_MANUAL）；未安装 moreanimation 时返回兜底值 20。
      */
     public static int playPriorityFor(String action) {
@@ -85,10 +78,6 @@ public final class MoreAnimationCompat {
     private static final class Loaded {
         private static Map<String, List<String>> actions() {
             return MaidAnimationData.ACTIONS;
-        }
-
-        private static int duration(String action) {
-            return MaidAnimationData.duration(action);
         }
 
         private static int playPriorityFor(String action) {

@@ -42,7 +42,7 @@ public final class StatueBasePose {
             activateSit2(forgeData, now);
         } else {
             forgeData.remove(MoreAnimationNbtKeys.STATUE_BASE_POSE);
-            clearSit2Action(forgeData);
+            clearInfiniteAction(forgeData);
         }
     }
 
@@ -73,9 +73,14 @@ public final class StatueBasePose {
         forgeData.putBoolean(MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT, false);
     }
 
-    /** 仅当当前 ACTIVE 是基础姿势 sit2 时清除动作键（播放中的一次性动作不受影响）。 */
-    static void clearSit2Action(CompoundTag forgeData) {
-        if (!MoreAnimationNbtKeys.SIT_VARIANT_SIT2.equals(forgeData.getString(MoreAnimationNbtKeys.ACTIVE))) {
+    /**
+     * 清除无限循环动作（UNTIL==Long.MAX_VALUE 的 ACTIVE，§8.18：含 sit2 基础姿势与
+     * 控制屏触发的循环动作）——蹲下切换姿势的语义是"重新摆姿势"，循环动作随之停止。
+     * 有限时长的 ACTIVE（理论上的旧存档残留）不动。
+     */
+    static void clearInfiniteAction(CompoundTag forgeData) {
+        if (!forgeData.contains(MoreAnimationNbtKeys.ACTIVE, Tag.TAG_STRING)
+                || forgeData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL) != Long.MAX_VALUE) {
             return;
         }
         forgeData.remove(MoreAnimationNbtKeys.ACTIVE);

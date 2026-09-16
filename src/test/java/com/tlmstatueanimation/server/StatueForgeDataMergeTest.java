@@ -109,23 +109,16 @@ class StatueForgeDataMergeTest {
     }
 
     @Test
-    void fillPlayTimingWritesWindow() {
+    void fillPlayTimingWritesInfiniteWindow() {
+        // §8.18：雕像动作无限循环——UNTIL 恒为 Long.MAX_VALUE，停止靠控制屏/蹲下切换
         CompoundTag setKeys = new CompoundTag();
-        StatueForgeDataMerge.fillPlayTiming(setKeys, 1000L, 90, 20);
+        StatueForgeDataMerge.fillPlayTiming(setKeys, 1000L, 20);
 
         assertEquals(1000L, setKeys.getLong(MoreAnimationNbtKeys.ACTIVE_START));
-        assertEquals(1090L, setKeys.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL));
+        assertEquals(Long.MAX_VALUE, setKeys.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL));
         assertEquals(20, setKeys.getInt(MoreAnimationNbtKeys.ACTIVE_PRIORITY));
         // 锁移动对雕像恒 false
         assertFalse(setKeys.getBoolean(MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT));
-    }
-
-    @Test
-    void fillPlayTimingClampsDurationToAtLeastOne() {
-        CompoundTag setKeys = new CompoundTag();
-        StatueForgeDataMerge.fillPlayTiming(setKeys, 500L, 0, 20);
-
-        assertEquals(501L, setKeys.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL));
     }
 
     @Test
@@ -134,13 +127,13 @@ class StatueForgeDataMergeTest {
         CompoundTag maidNbt = new CompoundTag();
         CompoundTag setKeys = new CompoundTag();
         setKeys.putString(MoreAnimationNbtKeys.ACTIVE, "circledance");
-        StatueForgeDataMerge.fillPlayTiming(setKeys, 2000L, 90, 20);
+        StatueForgeDataMerge.fillPlayTiming(setKeys, 2000L, 20);
         StatueForgeDataMerge.apply(maidNbt, setKeys, List.of());
 
         CompoundTag forgeData = forgeDataOf(maidNbt);
         assertEquals("circledance", forgeData.getString(MoreAnimationNbtKeys.ACTIVE));
         assertEquals(2000L, forgeData.getLong(MoreAnimationNbtKeys.ACTIVE_START));
-        assertEquals(2090L, forgeData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL));
+        assertEquals(Long.MAX_VALUE, forgeData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL));
         assertEquals(20, forgeData.getInt(MoreAnimationNbtKeys.ACTIVE_PRIORITY));
         assertFalse(forgeData.getBoolean(MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT));
     }
