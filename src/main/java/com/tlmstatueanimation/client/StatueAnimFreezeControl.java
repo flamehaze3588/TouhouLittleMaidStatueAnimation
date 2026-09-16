@@ -27,12 +27,24 @@ public final class StatueAnimFreezeControl {
      * 其 UNTIL=Long.MAX_VALUE 天然命中此判定，§8.16）；坐姿翻转或活跃下降沿触发宽限窗。
      */
     public static boolean shouldUnfreeze(EntityMaid maid, CompoundTag data, Level world) {
-        CompoundTag persistentData = maid.getPersistentData();
         long now = world.getGameTime();
-        boolean active = !persistentData.getString(MoreAnimationNbtKeys.EXPRESSION).isEmpty()
-                || (persistentData.contains(MoreAnimationNbtKeys.ACTIVE)
-                && persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL) > now);
+        boolean active = isMoreAnimationActive(maid.getPersistentData(), now);
         boolean sitting = data.getBoolean(MaidNbtTags.SITTING);
         return TRACKERS.computeIfAbsent(maid, k -> new FreezeGraceTracker()).shouldUnfreeze(sitting, active, now);
+    }
+
+    /**
+     * moreanimation 活跃判定（§8.12/§8.18）：表情非空，或 ACTIVE 键存在且未过期
+     * （UNTIL=Long.MAX_VALUE 的无限动作/基础姿势恒活跃）。渲染器解冻与 YSM ctrl 防护共用。
+     */
+    public static boolean isMoreAnimationActive(CompoundTag persistentData, long now) {
+        return !persistentData.getString(MoreAnimationNbtKeys.EXPRESSION).isEmpty()
+                || isActionActive(persistentData, now);
+    }
+
+    /** 是否有未过期的一次性/持续动作（不含表情；§8.19 的随机 idle 抑制判定用）。纯函数，可单测。 */
+    public static boolean isActionActive(CompoundTag persistentData, long now) {
+        return persistentData.contains(MoreAnimationNbtKeys.ACTIVE)
+                && persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_UNTIL) > now;
     }
 }

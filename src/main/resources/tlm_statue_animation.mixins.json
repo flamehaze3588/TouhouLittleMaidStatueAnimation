@@ -9,7 +9,8 @@
   },
   "client": [
     "client.TileEntityGarageKitRendererMixin",
-    "client.TileEntityStatueRendererMixin"
+    "client.TileEntityStatueRendererMixin",
+    "client.YsmCtrlBindingMixin"
   ],
   "mixins": []
 }
