@@ -6,6 +6,7 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityGarageKit;
 import com.tlmstatueanimation.MaidNbtTags;
 import com.tlmstatueanimation.client.StatueAnimFreezeControl;
+import com.tlmstatueanimation.client.StatueIdentity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
@@ -15,7 +16,9 @@ import net.minecraft.world.level.Level;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * 与 TileEntityStatueRendererMixin 同理：手办（Garage Kit）播放轮盘动作时
@@ -24,6 +27,18 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  */
 @Mixin(TileEntityGarageKitRenderer.class)
 public abstract class TileEntityGarageKitRendererMixin {
+
+    /**
+     * §8.20：同 TileEntityStatueRendererMixin——渲染前把快照 NBT 的 UUID 改写为
+     * 按手办坐标派生的独立值，切断与原女仆的身份关联（死亡/伤害类 mod 状态串台）。
+     */
+    @Inject(method = "renderEntity", at = @At("HEAD"), remap = false)
+    private void tlmStatueAnimation$detachSnapshotUuid(TileEntityGarageKit te, PoseStack poseStack,
+                                                       MultiBufferSource bufferIn, int combinedLightIn,
+                                                       CompoundTag data, Level world, EntityType<?> type,
+                                                       CallbackInfo ci) {
+        data.putUUID("UUID", StatueIdentity.forPos(te.getBlockPos()));
+    }
 
     @Redirect(method = "renderEntity",
             at = @At(value = "FIELD",

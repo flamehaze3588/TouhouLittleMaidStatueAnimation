@@ -6,6 +6,7 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityStatue;
 import com.tlmstatueanimation.MaidNbtTags;
 import com.tlmstatueanimation.client.StatueAnimFreezeControl;
+import com.tlmstatueanimation.client.StatueIdentity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
@@ -15,7 +16,9 @@ import net.minecraft.world.level.Level;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * 轮盘动作播放期间，把缓存假女仆的 renderState 从 STATUE 改为 ENTITY（§8.7）。
@@ -32,6 +35,22 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  */
 @Mixin(TileEntityStatueRenderer.class)
 public abstract class TileEntityStatueRendererMixin {
+
+    /**
+     * §8.20：渲染前把快照 NBT 中的 UUID 改写为按雕像坐标派生的独立 UUID（在 load() 之前）。
+     * 实测串台链：maid_damage_unbound 把女仆 setHealth 拦截到 RawMaidHealth.write，
+     * 其中 isDeathForced（静态 FORCED_DEATHS 集合，按 UUID 判定，单机进程内双端共享）命中即写 0；
+     * 假女仆 load() 内部会 setHealth——若 UUID 仍是快照里的原女仆 UUID，原女仆死亡时
+     * 假女仆血量被强制写 0 → deadOrDying → YSM 播放死亡动画并定格狐狸形态。
+     * 只改客户端 TE 数据副本（同步刷新会还原，此处每帧重写），不影响存档与照片放出语义。
+     */
+    @Inject(method = "renderEntity", at = @At("HEAD"), remap = false)
+    private void tlmStatueAnimation$detachSnapshotUuid(TileEntityStatue te, PoseStack poseStack,
+                                                       MultiBufferSource bufferIn, int combinedLightIn,
+                                                       CompoundTag data, Level world, EntityType<?> type,
+                                                       CallbackInfo ci) {
+        data.putUUID("UUID", StatueIdentity.forPos(te.getBlockPos()));
+    }
 
     @Redirect(method = "renderEntity",
             at = @At(value = "FIELD",
