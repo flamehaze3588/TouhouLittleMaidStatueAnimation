@@ -15,20 +15,24 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
- * YSM 模型目录扫描器（D1/D2，纯逻辑，无 MC 依赖，可单测）：
+ * YSM 模型目录扫描器（D1/D2/§8.22，纯逻辑，无 MC 依赖，可单测）：
  * 扫描 config/yes_steve_model/{built,custom,auth} 下的文件夹模型（含 ysm.json）、
- * zip 包模型与 .ysm 加密单文件模型，解析 properties.extra_animation 与
- * properties.extra_animation_classify 构建 modelId → 轮盘动作数据（根表 + 子菜单表）索引。
+ * zip 包模型与 .ysm 加密单文件模型，解析 properties.extra_animation、
+ * properties.extra_animation_classify 与 properties.extra_animation_buttons（molang 配置按钮），
+ * 构建 modelId → 轮盘数据（根表 + 子菜单表 + 配置按钮）索引。
  * <p>
- * 过滤规则：value 以 '#' 开头的条目是 YSM molang 配置按钮（本 mod 不支持），整条丢弃；
- * key 以 '#' 开头的条目是子菜单入口（'#return' 为返回上一级），保留。
+ * extra_animation 表中 value 以 '#' 开头的条目是配置按钮引用（'#staff' → extra_animation_buttons
+ * 中 id=staff 的按钮），轮盘条目转为 '#config:<id>' 标记保留原位；未被任何表引用的按钮
+ * 追加到根表末尾（YSM 二进制模型常见此形态）。key 以 '#' 开头的条目是子菜单入口，保留。
  * <p>
  * 已知限制（与文档 D1 一致）：
  * 服务器同步模型（cache/client 下为会话密钥加密，无法离线解析）。
@@ -39,7 +43,8 @@ public final class YsmModelScanner {
     }
 
     /**
-     * @param key         动作 key（传给 TLM playRouletteAnim / 写 NBT 用；'#' 前缀 = 子菜单入口）
+     * @param key         动作 key（传给 TLM playRouletteAnim / 写 NBT 用；'#' 前缀 = 子菜单入口；
+     *                    '#config:' 前缀 = 配置按钮入口）
      * @param displayName 显示名（本地化后）
      */
     public record AnimEntry(String key, String displayName) {
@@ -51,7 +56,7 @@ public final class YsmModelScanner {
      *
      * @param roots  扫描根（不存在的根跳过）
      * @param locale 本地化语言代码（如 zh_cn），用于读取 lang/&lt;locale&gt;.json 覆盖显示名
-     * @return modelId → 动作数据（根表 + classify 子菜单表，保持 ysm.json 中的声明顺序），无动作的模型不收录
+     * @return modelId → 轮盘数据（保持 ysm.json 中的声明顺序），无动作且无配置按钮的模型不收录
      */
     public static Map<String, ModelAnimations> scan(List<Path> roots, String locale) {
         Map<String, ModelAnimations> result = new LinkedHashMap<>();
@@ -132,6 +137,7 @@ public final class YsmModelScanner {
      * 这类模型的 modelId 即带后缀（如 "小女仆抱枕2.6.ysm"）；同时 putIfAbsent 一个
      * 去后缀变体兜底。显示名优先取内嵌语言表中当前 locale 的
      * "properties.extra_animation.&lt;key&gt;"，缺失回退默认显示名（子菜单表同规则）。
+     * 配置按钮段（format > 9）由走读器捕获，同 JSON 路径共用装配逻辑。
      * 解密/走读失败（crypto 版本不支持、format < 4、文件损坏等）只跳过该文件。
      */
     private static void parseYsmFile(Path root, Path file, String locale, Map<String, ModelAnimations> result) {
@@ -139,10 +145,9 @@ public final class YsmModelScanner {
             byte[] decrypted = YsmFileDecryptor.decryptYsmFile(Files.readAllBytes(file));
             YsmBinaryModelWalker.YsmModelData data = YsmBinaryModelWalker.walk(decrypted);
             Map<String, String> lang = data.languageFiles().get(locale);
-            List<AnimEntry> rootEntries = localizeTable(data.extraAnimations(), lang);
-            Map<String, List<AnimEntry>> submenus = new LinkedHashMap<>();
-            data.extraAnimationClassify().forEach((id, table) -> submenus.put(id, localizeTable(table, lang)));
-            ModelAnimations animations = new ModelAnimations(rootEntries, submenus);
+            List<YsmBinaryModelWalker.YsmConfigButton> buttons = localizeButtons(data.configButtons(), null, lang);
+            ModelAnimations animations = assemble(data.extraAnimations(), data.extraAnimationClassify(), buttons,
+                    (key, fallback) -> localizeAnimationName(key, fallback, lang));
             if (animations.isEmpty()) {
                 return;
             }
@@ -175,9 +180,9 @@ public final class YsmModelScanner {
     }
 
     /**
-     * 解析单个 ysm.json：properties.extra_animation（根表）与 properties.extra_animation_classify
-     * （[{id, extra_animation: {...}}]，子表可再嵌套 '#id' 入口），再尝试用同目录
-     * lang/&lt;locale&gt;.json 的 "properties.extra_animation.&lt;key&gt;" 覆盖显示名（根表与子表同表）。
+     * 解析单个 ysm.json：properties.extra_animation（根表）、extra_animation_classify
+     * （[{id, extra_animation: {...}}]，子表可再嵌套 '#id' 入口）与 extra_animation_buttons
+     * （[{id, name, config_forms: [...]}]），再尝试用同目录 lang/&lt;locale&gt;.json 覆盖显示名。
      */
     static ModelAnimations parseModel(Path ysmJson, String locale) throws IOException {
         JsonObject root;
@@ -190,19 +195,206 @@ public final class YsmModelScanner {
         JsonObject properties = root.getAsJsonObject("properties");
         JsonObject lang = readLang(ysmJson.getParent(), locale);
 
-        List<AnimEntry> rootEntries = parseAnimationTable(
+        List<YsmBinaryModelWalker.YsmConfigButton> buttons = localizeButtons(
+                parseButtonsJson(properties), lang, null);
+        return assemble(
                 properties.has("extra_animation") && properties.get("extra_animation").isJsonObject()
-                        ? properties.getAsJsonObject("extra_animation") : null, lang);
-        Map<String, List<AnimEntry>> submenus = parseClassify(properties, lang);
-        if (rootEntries.isEmpty() && submenus.isEmpty()) {
-            return ModelAnimations.EMPTY;
-        }
-        return new ModelAnimations(rootEntries, submenus);
+                        ? toStringMap(properties.getAsJsonObject("extra_animation")) : null,
+                parseClassifyJson(properties), buttons,
+                (key, fallback) -> localizeAnimationName(key, fallback, lang));
     }
 
-    /** extra_animation_classify：[{id, extra_animation: {...}}]；格式不符的元素跳过 */
-    private static Map<String, List<AnimEntry>> parseClassify(JsonObject properties, JsonObject lang) {
+    private static Map<String, String> toStringMap(JsonObject obj) {
+        Map<String, String> map = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
+            map.put(entry.getKey(), entry.getValue().getAsString());
+        }
+        return map;
+    }
+
+    // ---------- 装配（JSON/二进制两路径共用） ----------
+
+    @FunctionalInterface
+    private interface NameLocalizer {
+        /** 动作显示名本地化：lang 表命中用本地化值，否则回退默认名 */
+        String localize(String key, String fallback);
+    }
+
+    /** 动作表 → 轮盘条目：'#' 开头的 value 是配置按钮引用，转为 '#config:<id>' 标记（按钮不存在则丢弃） */
+    private static ModelAnimations assemble(Map<String, String> rootTable, Map<String, ? extends Map<String, String>> classifyTables,
+                                            List<YsmBinaryModelWalker.YsmConfigButton> buttons,
+                                            NameLocalizer nameLocalizer) {
+        Set<String> referenced = new HashSet<>();
+        List<AnimEntry> root = toEntries(rootTable, buttons, referenced, nameLocalizer);
         Map<String, List<AnimEntry>> submenus = new LinkedHashMap<>();
+        classifyTables.forEach((id, table) -> submenus.put(id, toEntries(table, buttons, referenced, nameLocalizer)));
+        // 未被任何表引用的按钮追加到根表末尾（二进制模型常见此形态：按钮段独立存在）
+        for (YsmBinaryModelWalker.YsmConfigButton button : buttons) {
+            if (!referenced.contains(button.id())) {
+                root.add(new AnimEntry(ModelAnimations.CONFIG_KEY_PREFIX + button.id(), button.name()));
+            }
+        }
+        return new ModelAnimations(root, submenus, buttons);
+    }
+
+    private static List<AnimEntry> toEntries(Map<String, String> table,
+                                             List<YsmBinaryModelWalker.YsmConfigButton> buttons,
+                                             Set<String> referenced, NameLocalizer nameLocalizer) {
+        List<AnimEntry> entries = new ArrayList<>();
+        if (table == null) {
+            return entries;
+        }
+        int index = 0;
+        for (Map.Entry<String, String> entry : table.entrySet()) {
+            String key = entry.getKey();
+            String displayName = entry.getValue();
+            if (displayName.startsWith("#")) {
+                // 配置按钮引用：标签仍走 properties.extra_animation.<key> 的 lang 覆盖，
+                // 回退为按钮名（YSM renderRadialButtons 同款逻辑，§8.22 修正）
+                String refId = displayName.substring(1);
+                YsmBinaryModelWalker.YsmConfigButton button = findButton(buttons, refId);
+                if (button != null) {
+                    referenced.add(refId);
+                    String fallback = button.name().isBlank() ? String.valueOf(index) : button.name();
+                    entries.add(new AnimEntry(ModelAnimations.CONFIG_KEY_PREFIX + refId,
+                            nameLocalizer.localize(key, fallback)));
+                }
+                index++;
+                continue;
+            }
+            // 空显示名回退到槽位序号（YSM 同款：extra7 空名 → 显示 "7"）
+            String fallback = displayName.isBlank() ? String.valueOf(index) : displayName;
+            entries.add(new AnimEntry(key, nameLocalizer.localize(key, fallback)));
+            index++;
+        }
+        return entries;
+    }
+
+    private static YsmBinaryModelWalker.YsmConfigButton findButton(List<YsmBinaryModelWalker.YsmConfigButton> buttons, String id) {
+        for (YsmBinaryModelWalker.YsmConfigButton button : buttons) {
+            if (button.id().equals(id)) {
+                return button;
+            }
+        }
+        return null;
+    }
+
+    /** 动作显示名本地化（二进制内嵌 lang 表） */
+    private static String localizeAnimationName(String key, String fallback, Map<String, String> lang) {
+        String langKey = "properties.extra_animation." + key;
+        if (lang != null && lang.containsKey(langKey)) {
+            return lang.get(langKey);
+        }
+        return fallback;
+    }
+
+    /** 动作显示名本地化（文件夹/zip 模型的 lang/&lt;locale&gt;.json） */
+    private static String localizeAnimationName(String key, String fallback, JsonObject lang) {
+        String langKey = "properties.extra_animation." + key;
+        if (lang != null && lang.has(langKey) && lang.get(langKey).isJsonPrimitive()) {
+            return lang.get(langKey).getAsString();
+        }
+        return fallback;
+    }
+
+    // ---------- 配置按钮解析与本地化 ----------
+
+    /** JSON 形态：properties.extra_animation_buttons → 原始按钮记录（未本地化） */
+    private static List<YsmBinaryModelWalker.YsmConfigButton> parseButtonsJson(JsonObject properties) {
+        List<YsmBinaryModelWalker.YsmConfigButton> buttons = new ArrayList<>();
+        JsonElement element = properties.get("extra_animation_buttons");
+        if (element == null || !element.isJsonArray()) {
+            return buttons;
+        }
+        for (JsonElement btnElement : element.getAsJsonArray()) {
+            if (!btnElement.isJsonObject()) {
+                continue;
+            }
+            JsonObject btnObj = btnElement.getAsJsonObject();
+            List<YsmBinaryModelWalker.ConfigForm> forms = new ArrayList<>();
+            JsonElement formsElement = btnObj.get("config_forms");
+            if (formsElement != null && formsElement.isJsonArray()) {
+                for (JsonElement formElement : formsElement.getAsJsonArray()) {
+                    if (!formElement.isJsonObject()) {
+                        continue;
+                    }
+                    JsonObject formObj = formElement.getAsJsonObject();
+                    LinkedHashMap<String, String> labels = new LinkedHashMap<>();
+                    JsonElement labelsElement = formObj.get("labels");
+                    if (labelsElement != null && labelsElement.isJsonObject()) {
+                        for (Map.Entry<String, JsonElement> label : labelsElement.getAsJsonObject().entrySet()) {
+                            labels.put(label.getKey(), label.getValue().getAsString());
+                        }
+                    }
+                    forms.add(new YsmBinaryModelWalker.ConfigForm(
+                            getStr(formObj, "type"), getStr(formObj, "title"), getStr(formObj, "description"),
+                            getStr(formObj, "value"), getFloat(formObj, "step"), getFloat(formObj, "min"),
+                            getFloat(formObj, "max"), labels));
+                }
+            }
+            buttons.add(new YsmBinaryModelWalker.YsmConfigButton(
+                    getStr(btnObj, "id"), getStr(btnObj, "name"), forms));
+        }
+        return buttons;
+    }
+
+    /**
+     * 按钮本地化（YSM lang 键格式，与 AnimationRouletteScreen 一致）：
+     * 按钮名 properties.extra_animation_buttons.&lt;id&gt;.name；
+     * 表单标题/描述 ...config_forms.&lt;i&gt;.title / .description；
+     * 单选标签 ...config_forms.&lt;i&gt;.labels.&lt;j&gt;（按声明序）。缺失一律回退原文。
+     * lang 的两种来源（JSON 文件 / 二进制内嵌表）各传一个。
+     */
+    private static List<YsmBinaryModelWalker.YsmConfigButton> localizeButtons(
+            List<YsmBinaryModelWalker.YsmConfigButton> buttons, JsonObject langJson, Map<String, String> langMap) {
+        List<YsmBinaryModelWalker.YsmConfigButton> result = new ArrayList<>(buttons.size());
+        for (YsmBinaryModelWalker.YsmConfigButton button : buttons) {
+            String prefix = "properties.extra_animation_buttons." + button.id();
+            String name = langText(langJson, langMap, prefix + ".name", button.name());
+            List<YsmBinaryModelWalker.ConfigForm> forms = new ArrayList<>(button.forms().size());
+            for (int i = 0; i < button.forms().size(); i++) {
+                YsmBinaryModelWalker.ConfigForm form = button.forms().get(i);
+                String formPrefix = prefix + ".config_forms." + i;
+                LinkedHashMap<String, String> labels = new LinkedHashMap<>();
+                int labelIndex = 0;
+                for (Map.Entry<String, String> label : form.labels().entrySet()) {
+                    labels.put(langText(langJson, langMap, formPrefix + ".labels." + labelIndex, label.getKey()),
+                            label.getValue());
+                    labelIndex++;
+                }
+                forms.add(new YsmBinaryModelWalker.ConfigForm(form.type(),
+                        langText(langJson, langMap, formPrefix + ".title", form.title()),
+                        langText(langJson, langMap, formPrefix + ".description", form.description()),
+                        form.value(), form.step(), form.min(), form.max(), labels));
+            }
+            result.add(new YsmBinaryModelWalker.YsmConfigButton(button.id(), name, forms));
+        }
+        return result;
+    }
+
+    private static String langText(JsonObject langJson, Map<String, String> langMap, String key, String fallback) {
+        if (langJson != null && langJson.has(key) && langJson.get(key).isJsonPrimitive()) {
+            return langJson.get(key).getAsString();
+        }
+        if (langMap != null && langMap.containsKey(key)) {
+            return langMap.get(key);
+        }
+        return fallback;
+    }
+
+    private static String getStr(JsonObject obj, String key) {
+        return obj.has(key) && obj.get(key).isJsonPrimitive() ? obj.get(key).getAsString() : "";
+    }
+
+    private static float getFloat(JsonObject obj, String key) {
+        return obj.has(key) && obj.get(key).isJsonPrimitive() ? obj.get(key).getAsFloat() : 0.0f;
+    }
+
+    // ---------- 原有动作表/子菜单解析 ----------
+
+    /** extra_animation_classify：[{id, extra_animation: {...}}]；格式不符的元素跳过 */
+    private static Map<String, Map<String, String>> parseClassifyJson(JsonObject properties) {
+        Map<String, Map<String, String>> submenus = new LinkedHashMap<>();
         JsonElement classify = properties.get("extra_animation_classify");
         if (classify == null || !classify.isJsonArray()) {
             return submenus;
@@ -216,56 +408,15 @@ public final class YsmModelScanner {
                 continue;
             }
             String id = classifyEntry.get("id").getAsString();
-            JsonObject table = classifyEntry.has("extra_animation") && classifyEntry.get("extra_animation").isJsonObject()
-                    ? classifyEntry.getAsJsonObject("extra_animation") : null;
-            submenus.put(id, parseAnimationTable(table, lang));
-        }
-        return submenus;
-    }
-
-    /**
-     * 解析一张 extra_animation 表（根表或 classify 子表）：保持声明顺序，
-     * value 以 '#' 开头的配置按钮条目整条丢弃，key 以 '#' 开头的子菜单入口保留。
-     */
-    private static List<AnimEntry> parseAnimationTable(JsonObject table, JsonObject lang) {
-        List<AnimEntry> animations = new ArrayList<>();
-        if (table == null) {
-            return animations;
-        }
-        for (Map.Entry<String, JsonElement> entry : table.entrySet()) {
-            String key = entry.getKey();
-            String displayName = entry.getValue().getAsString();
-            if (displayName.startsWith("#")) {
-                // molang 配置按钮（value 为 '#' + 配置 id），本 mod 不支持，整条丢弃
-                continue;
-            }
-            String langKey = "properties.extra_animation." + key;
-            if (lang != null && lang.has(langKey) && lang.get(langKey).isJsonPrimitive()) {
-                displayName = lang.get(langKey).getAsString();
-            }
-            animations.add(new AnimEntry(key, displayName));
-        }
-        return animations;
-    }
-
-    /** 二进制走读产出的表做同一套过滤 + 本地化（lang 为内嵌语言表当前 locale 分表，可空） */
-    private static List<AnimEntry> localizeTable(Map<String, String> table, Map<String, String> lang) {
-        List<AnimEntry> animations = new ArrayList<>();
-        for (Map.Entry<String, String> entry : table.entrySet()) {
-            String key = entry.getKey();
-            String displayName = entry.getValue();
-            if (displayName.startsWith("#")) {
-                continue;
-            }
-            if (lang != null) {
-                String localized = lang.get("properties.extra_animation." + key);
-                if (localized != null) {
-                    displayName = localized;
+            Map<String, String> table = new LinkedHashMap<>();
+            if (classifyEntry.has("extra_animation") && classifyEntry.get("extra_animation").isJsonObject()) {
+                for (Map.Entry<String, JsonElement> entry : classifyEntry.getAsJsonObject("extra_animation").entrySet()) {
+                    table.put(entry.getKey(), entry.getValue().getAsString());
                 }
             }
-            animations.add(new AnimEntry(key, displayName));
+            submenus.put(id, table);
         }
-        return animations;
+        return submenus;
     }
 
     private static JsonObject readLang(Path modelDir, String locale) {

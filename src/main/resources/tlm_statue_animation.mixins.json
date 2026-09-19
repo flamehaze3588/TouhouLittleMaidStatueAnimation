@@ -10,7 +10,8 @@
   "client": [
     "client.TileEntityGarageKitRendererMixin",
     "client.TileEntityStatueRendererMixin",
-    "client.YsmCtrlBindingMixin"
+    "client.YsmCtrlBindingMixin",
+    "client.YsmStatueRoamingMixin"
   ],
   "mixins": []
 }

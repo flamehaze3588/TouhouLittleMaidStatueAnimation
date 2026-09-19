@@ -1,6 +1,8 @@
 package com.tlmstatueanimation.client.model.ysmfile;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -20,10 +22,25 @@ public final class YsmBinaryModelWalker {
      * @param extraAnimations        轮盘动作：key → 默认显示名（LinkedHashMap，保持声明顺序）
      * @param extraAnimationClassify 子菜单表：classify id → （key → 默认显示名，保持声明顺序）
      * @param languageFiles          locale → (lang key → value)
+     * @param configButtons          轮盘配置按钮（§8.22：显示/隐藏部件等 molang 配置面板）
      */
     public record YsmModelData(LinkedHashMap<String, String> extraAnimations,
                                Map<String, LinkedHashMap<String, String>> extraAnimationClassify,
-                               Map<String, Map<String, String>> languageFiles) {
+                               Map<String, Map<String, String>> languageFiles,
+                               List<YsmConfigButton> configButtons) {
+    }
+
+    /** 轮盘配置按钮：id + 默认显示名 + 配置表单项（保持声明顺序） */
+    public record YsmConfigButton(String id, String name, List<ConfigForm> forms) {
+    }
+
+    /**
+     * 配置表单项（镜像 YSM 二进制段）：type 为 "checkbox"/"radio"/"slider" 等；
+     * value 为 molang 赋值串（checkbox 形如 "v.roaming.xxx"，勾选时拼 "=1"/"=0"；
+     * radio 的 labels 为 显示名→赋值串；slider 用 min/max/step 与 value 赋值前缀）。
+     */
+    public record ConfigForm(String type, String title, String description, String value,
+                             float step, float min, float max, LinkedHashMap<String, String> labels) {
     }
 
     private final YsmByteReader reader;
@@ -31,6 +48,7 @@ public final class YsmBinaryModelWalker {
     private final LinkedHashMap<String, String> extraAnimations = new LinkedHashMap<>();
     private final Map<String, LinkedHashMap<String, String>> extraAnimationClassify = new LinkedHashMap<>();
     private final Map<String, Map<String, String>> languageFiles = new LinkedHashMap<>();
+    private final List<YsmConfigButton> configButtons = new ArrayList<>();
 
     private YsmBinaryModelWalker(byte[] decompressedData) {
         this.reader = new YsmByteReader(decompressedData);
@@ -52,7 +70,7 @@ public final class YsmBinaryModelWalker {
         } else {
             walker.deserializeModern();
         }
-        return new YsmModelData(walker.extraAnimations, walker.extraAnimationClassify, walker.languageFiles);
+        return new YsmModelData(walker.extraAnimations, walker.extraAnimationClassify, walker.languageFiles, walker.configButtons);
     }
 
     // ============ legacy V15 格式（format 4 ~ 15，移植自 OpenYSM/YSMParser 的 deserializeLegacyV15）============
@@ -291,7 +309,7 @@ public final class YsmBinaryModelWalker {
         reader.readVarInt(); // footerPad3
     }
 
-    /** 关键目标段：extraAnimations 与 classify 在这里；buttons（molang 配置面板）只走读不保留 */
+    /** 关键目标段：extraAnimations、classify 与 config buttons（molang 配置面板，§8.22）都在这里 */
     private void parseYSMJson() {
         reader.readString(); // properties sha256
         int isNewVersionYsm = reader.readVarInt();
@@ -335,25 +353,28 @@ public final class YsmBinaryModelWalker {
         if (format > 9) {
             int extraAnimationButtonsCount = reader.readVarInt();
             for (int i = 0; i < extraAnimationButtonsCount; i++) {
-                reader.readString(); // button id
-                reader.readString(); // button name
+                String buttonId = reader.readString();
+                String buttonName = reader.readString();
                 reader.readVarInt(); // buttonPadding
 
                 int configurationFormsCount = reader.readVarInt();
+                List<ConfigForm> forms = new ArrayList<>(configurationFormsCount);
                 for (int j = 0; j < configurationFormsCount; j++) {
-                    reader.readString(); // form type
-                    reader.readString(); // title
-                    reader.readString(); // description
-                    reader.readString(); // defaultValue
-                    reader.readFloat(); // step
-                    reader.readFloat(); // min
-                    reader.readFloat(); // max
+                    String formType = reader.readString();
+                    String title = reader.readString();
+                    String description = reader.readString();
+                    String value = reader.readString(); // defaultValue 槽位实为 molang 赋值串
+                    float step = reader.readFloat();
+                    float min = reader.readFloat();
+                    float max = reader.readFloat();
                     int labelsSize = reader.readVarInt();
+                    LinkedHashMap<String, String> labels = new LinkedHashMap<>();
                     for (int l = 0; l < labelsSize; l++) {
-                        reader.readString(); // label key
-                        reader.readString(); // label value
+                        labels.put(reader.readString(), reader.readString()); // label key → value
                     }
+                    forms.add(new ConfigForm(formType, title, description, value, step, min, max, labels));
                 }
+                configButtons.add(new YsmConfigButton(buttonId, buttonName, forms));
             }
 
             int extraAnimationClassifyCount = reader.readVarInt();

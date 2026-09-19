@@ -255,4 +255,118 @@ class YsmModelScannerTest {
         assertEquals("本地化动作", sub.get(0).displayName());
         assertEquals("返回", sub.get(1).displayName());
     }
+
+    @Test
+    void configButtonRefBecomesMarkerEntry() throws IOException {
+        // §8.22：extra_animation 表中 '#staff' 引用配置按钮 → '#config:staff' 标记条目
+        Path root = tempDir.resolve("custom");
+        createModelWithProperties(root, "witch", """
+                {
+                  "extra_animation": { "dance": "跳舞", "staff": "#staff" },
+                  "extra_animation_buttons": [
+                    { "id": "staff", "name": "显示/隐藏法印",
+                      "config_forms": [
+                        { "type": "checkbox", "title": "显示/隐藏法印", "description": "开关法印", "value": "v.roaming.B" }
+                      ] }
+                  ]
+                }
+                """);
+
+        ModelAnimations animations = YsmModelScanner.scan(List.of(root), "zh_cn").get("witch");
+
+        assertNotNull(animations);
+        assertEquals("dance", animations.root().get(0).key());
+        assertEquals(ModelAnimations.CONFIG_KEY_PREFIX + "staff", animations.root().get(1).key());
+        assertEquals("显示/隐藏法印", animations.root().get(1).displayName());
+        assertEquals(1, animations.configButtons().size());
+        var button = animations.findConfigButton("staff");
+        assertNotNull(button);
+        assertEquals("checkbox", button.forms().get(0).type());
+        assertEquals("v.roaming.B", button.forms().get(0).value());
+    }
+
+    @Test
+    void unreferencedConfigButtonAppendedToRoot() throws IOException {
+        // §8.22：未被动作表引用的按钮追加根表末尾（二进制模型常见形态）
+        Path root = tempDir.resolve("custom");
+        createModelWithProperties(root, "witch2", """
+                {
+                  "extra_animation": { "wave": "招手" },
+                  "extra_animation_buttons": [
+                    { "id": "tails", "name": "九尾切换",
+                      "config_forms": [
+                        { "type": "checkbox", "title": "九尾", "description": "", "value": "v.roaming.C" }
+                      ] }
+                  ]
+                }
+                """);
+
+        ModelAnimations animations = YsmModelScanner.scan(List.of(root), "zh_cn").get("witch2");
+
+        assertNotNull(animations);
+        assertEquals(2, animations.root().size());
+        assertEquals(ModelAnimations.CONFIG_KEY_PREFIX + "tails", animations.root().get(1).key());
+        assertEquals("九尾切换", animations.root().get(1).displayName());
+    }
+
+    @Test
+    void danglingConfigButtonRefDropped() throws IOException {
+        // '#xxx' 引用了不存在的按钮 id → 该条目丢弃
+        Path root = tempDir.resolve("custom");
+        createModelWithProperties(root, "broken", """
+                {
+                  "extra_animation": { "dance": "跳舞", "ghost": "#ghost" },
+                  "extra_animation_buttons": []
+                }
+                """);
+
+        ModelAnimations animations = YsmModelScanner.scan(List.of(root), "zh_cn").get("broken");
+
+        assertNotNull(animations);
+        assertEquals(1, animations.root().size());
+        assertEquals("dance", animations.root().get(0).key());
+    }
+
+    @Test
+    void blankDisplayNameFallsBackToSlotIndex() throws IOException {
+        // YSM 同款：空显示名回退到槽位序号（星之魔女酒狐 extra7 空名 → 显示 "7"）
+        Path root = tempDir.resolve("custom");
+        createModelWithProperties(root, "blankname", """
+                { "extra_animation": { "extra0": "变身", "extra1": "", "extra2": "" } }
+                """);
+
+        ModelAnimations animations = YsmModelScanner.scan(List.of(root), "zh_cn").get("blankname");
+
+        assertNotNull(animations);
+        assertEquals("变身", animations.root().get(0).displayName());
+        assertEquals("1", animations.root().get(1).displayName());
+        assertEquals("2", animations.root().get(2).displayName());
+    }
+
+    @Test
+    void configButtonRefUsesLangOverrideOnTableKey() throws IOException {
+        // YSM 同款：配置按钮引用条目的标签过 properties.extra_animation.<key> 的 lang 覆盖
+        //（UOM_Chan：extra0='#extra_config' 按钮名为 "0"，lang 覆盖为"变身"）
+        Path root = tempDir.resolve("custom");
+        Path modelDir = createModelWithProperties(root, "uom", """
+                {
+                  "extra_animation": { "extra0": "#cfg" },
+                  "extra_animation_buttons": [
+                    { "id": "cfg", "name": "0",
+                      "config_forms": [
+                        { "type": "checkbox", "title": "切换", "description": "", "value": "v.roaming.W" }
+                      ] }
+                  ]
+                }
+                """);
+        Files.createDirectories(modelDir.resolve("lang"));
+        Files.writeString(modelDir.resolve("lang").resolve("zh_cn.json"),
+                "{ \"properties.extra_animation.extra0\": \"变身\" }", StandardCharsets.UTF_8);
+
+        ModelAnimations animations = YsmModelScanner.scan(List.of(root), "zh_cn").get("uom");
+
+        assertNotNull(animations);
+        assertEquals(ModelAnimations.CONFIG_KEY_PREFIX + "cfg", animations.root().get(0).key());
+        assertEquals("变身", animations.root().get(0).displayName());
+    }
 }

@@ -1,9 +1,10 @@
 {
-  "key.categories.tlm_statue_animation": "车万女仆：雕像动画",
-  "key.tlm_statue_animation.open_statue_roulette": "打开雕像动作轮盘",
-  "gui.tlm_statue_animation.roulette.title": "雕像动作",
-  "gui.tlm_statue_animation.roulette.stop": "停止动作",
-  "gui.tlm_statue_animation.roulette.return": "返回",
-  "gui.tlm_statue_animation.roulette.page": "%s/%s（滚轮翻页）",
-  "chat.tlm_statue_animation.no_animations": "未找到模型 %s 的轮盘动作（模型可能不在本地 YSM 目录中）"
+    "key.categories.tlm_statue_animation":  "车万女仆：雕像动画",
+    "key.tlm_statue_animation.open_statue_roulette":  "打开雕像动作轮盘",
+    "gui.tlm_statue_animation.roulette.title":  "雕像动作",
+    "gui.tlm_statue_animation.roulette.stop":  "停止动作",
+    "gui.tlm_statue_animation.roulette.return":  "返回",
+    "gui.tlm_statue_animation.roulette.page":  "%s/%s（滚轮翻页）",
+    "chat.tlm_statue_animation.no_animations":  "未找到模型 %s 的轮盘动作（模型可能不在本地 YSM 目录中）",
+    "gui.tlm_statue_animation.roulette.config.unsupported":  "暂不支持该类型"
 }

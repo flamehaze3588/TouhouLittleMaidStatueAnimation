@@ -31,7 +31,7 @@ class RouletteNavigationTest {
                 new YsmModelScanner.AnimEntry("#二级", "二级菜单"),
                 new YsmModelScanner.AnimEntry("#return", "返回")));
         submenus.put("二级", List.of(new YsmModelScanner.AnimEntry("dance1", "深层舞蹈")));
-        return new ModelAnimations(root, submenus);
+        return new ModelAnimations(root, submenus, java.util.List.of());
     }
 
     /** depth 层链式样例：根 → "#L1" → "#L2" → …（每层子表含下一层入口，最后一层只有动作） */
@@ -47,7 +47,7 @@ class RouletteNavigationTest {
             }
             submenus.put("L" + i, table);
         }
-        return new ModelAnimations(root, submenus);
+        return new ModelAnimations(root, submenus, java.util.List.of());
     }
 
     @Test

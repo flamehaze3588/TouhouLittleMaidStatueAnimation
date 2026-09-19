@@ -6,23 +6,31 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.tlmstatueanimation.client.StatueAnimationKeys;
+import com.tlmstatueanimation.MaidNbtTags;
+import com.tlmstatueanimation.client.StatueRoamingDriver;
 import com.tlmstatueanimation.client.model.ModelAnimations;
+import com.tlmstatueanimation.client.model.RoamingAssignments;
 import com.tlmstatueanimation.client.model.YsmModelScanner;
+import com.tlmstatueanimation.client.model.ysmfile.YsmBinaryModelWalker;
 import com.tlmstatueanimation.network.NetworkHandler;
 import com.tlmstatueanimation.network.message.C2SPlayStatueAnimationPacket;
+import com.tlmstatueanimation.network.message.C2SStatueRoamingVarPacket;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import org.joml.Matrix4f;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 雕像动作轮盘屏（复刻 YSM 2.x 轮盘视觉风格：几何、配色、交互对齐）。
@@ -75,6 +83,12 @@ public class StatueAnimationRouletteScreen extends Screen {
     private static final int BREADCRUMB_X = 195;
     private static final int BREADCRUMB_Y = -100;
 
+    /** 配置面板（相对轮盘中心）：左上 (125,-95)，宽 250，行高 18 */
+    private static final int CONFIG_X = 125;
+    private static final int CONFIG_Y = -95;
+    private static final int CONFIG_W = 250;
+    private static final int CONFIG_ROW_H = 18;
+
     private static final int COLOR_SEGMENT = 0x90000000;
     private static final int COLOR_SEGMENT_HOVER = 0xF0FFB100;
     private static final int COLOR_LABEL = 0xF3EFE0;
@@ -86,12 +100,22 @@ public class StatueAnimationRouletteScreen extends Screen {
     private final BlockPos corePos;
     private final String modelId;
     private final RouletteNavigation nav;
+    private final ModelAnimations animations;
+    /** 配置项当前值：初值取自雕像 NBT 的 YsmRoamingVars，勾选后本地即时覆盖（§8.22） */
+    private final Map<String, Float> localVars = new HashMap<>();
+    /** 打开中的配置按钮（null = 轮盘模式；非 null = 配置面板模式） */
+    private YsmBinaryModelWalker.YsmConfigButton activeConfig;
 
-    public StatueAnimationRouletteScreen(BlockPos corePos, String modelId, ModelAnimations animations) {
+    public StatueAnimationRouletteScreen(BlockPos corePos, String modelId, ModelAnimations animations, CompoundTag maidNbt) {
         super(Component.empty());
         this.corePos = corePos;
         this.modelId = modelId;
         this.nav = new RouletteNavigation(animations);
+        this.animations = animations;
+        CompoundTag vars = maidNbt.getCompound(MaidNbtTags.YSM_ROAMING_VARS);
+        for (String key : vars.getAllKeys()) {
+            this.localVars.put(key, vars.getFloat(key));
+        }
     }
 
     @Override
@@ -119,9 +143,13 @@ public class StatueAnimationRouletteScreen extends Screen {
         this.minecraft.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
     }
 
-    /** 返回上一级；已在根层则关屏（栈底再返回 = 关屏，对齐 YSM） */
+    /** 返回上一级；配置面板打开时先关面板；已在根层则关屏（栈底再返回 = 关屏，对齐 YSM） */
     private void navigateBack() {
         playClickSound();
+        if (this.activeConfig != null) {
+            this.activeConfig = null;
+            return;
+        }
         if (!this.nav.back()) {
             this.onClose();
         }
@@ -135,17 +163,22 @@ public class StatueAnimationRouletteScreen extends Screen {
         }
         int centerX = centerX();
         int centerY = centerY();
+        // 右侧返回按钮（任何层都可点；配置面板打开时按钮在面板下方，点击 = 关面板；根层点击 = 关屏）
+        if (inRect(mouseX, mouseY, centerX + RETURN_X, returnButtonY(centerY), RETURN_W, RETURN_H)) {
+            navigateBack();
+            return true;
+        }
+        // 配置面板模式：只处理面板行点击
+        if (this.activeConfig != null) {
+            handleConfigClick(mouseX, mouseY, centerX, centerY);
+            return true;
+        }
         // 中心停止按钮
         if (inRect(mouseX, mouseY, centerX + STOP_X, centerY + STOP_Y, STOP_W, STOP_H)) {
             playClickSound();
             // animationKey 依约定传 "empty"，服务端只看 stop 标志
             NetworkHandler.sendToServer(new C2SPlayStatueAnimationPacket(this.corePos, "empty", true));
             this.onClose();
-            return true;
-        }
-        // 右侧返回按钮（任何层都可点；根层点击 = 关屏）
-        if (inRect(mouseX, mouseY, centerX + RETURN_X, centerY + RETURN_Y, RETURN_W, RETURN_H)) {
-            navigateBack();
             return true;
         }
         // 页码按钮（多于 1 页才有点击区）
@@ -171,6 +204,16 @@ public class StatueAnimationRouletteScreen extends Screen {
             if ("#return".equals(key)) {
                 // 模型作者自加的返回条目：返回上一级（栈底再返回 = 关屏）
                 navigateBack();
+                return true;
+            }
+            if (key.startsWith(ModelAnimations.CONFIG_KEY_PREFIX)) {
+                // 配置按钮入口（§8.22）：打开配置面板（按钮不存在则忽略）
+                YsmBinaryModelWalker.YsmConfigButton config = this.animations.findConfigButton(
+                        key.substring(ModelAnimations.CONFIG_KEY_PREFIX.length()));
+                if (config != null) {
+                    this.activeConfig = config;
+                    playClickSound();
+                }
                 return true;
             }
             if (key.startsWith("#")) {
@@ -215,6 +258,13 @@ public class StatueAnimationRouletteScreen extends Screen {
         // 不调用 renderBackground：轮盘浮在游戏画面上
         int centerX = centerX();
         int centerY = centerY();
+        if (this.activeConfig != null) {
+            // 配置面板模式（§8.22）：不画轮盘，只画面板 + 返回按钮
+            renderConfigPanel(graphics, mouseX, mouseY, centerX, centerY);
+            renderReturnButton(graphics, mouseX, mouseY, centerX, centerY);
+            super.render(graphics, mouseX, mouseY, partialTick);
+            return;
+        }
         renderRadialBackground(graphics, mouseX, mouseY, centerX, centerY);
         renderRadialButtons(graphics, centerX, centerY);
         renderStopButton(graphics, mouseX, mouseY, centerX, centerY);
@@ -272,7 +322,7 @@ public class StatueAnimationRouletteScreen extends Screen {
             YsmModelScanner.AnimEntry entry = pageEntries.get(i);
             Component label = Component.literal(entry.displayName());
             if (entry.key().startsWith("#")) {
-                // 子菜单条目红色渲染（对齐 YSM withStyle(ChatFormatting.RED)；§ 颜色码照常生效）
+                // 子菜单/配置按钮条目红色渲染（对齐 YSM withStyle(ChatFormatting.RED)；§ 颜色码照常生效）
                 label = Component.literal(entry.displayName()).withStyle(ChatFormatting.RED);
             }
             List<FormattedCharSequence> lines = this.font.split(label, LABEL_WRAP_WIDTH);
@@ -298,14 +348,23 @@ public class StatueAnimationRouletteScreen extends Screen {
                 centerX, centerY - this.font.lineHeight / 2, COLOR_LABEL);
     }
 
+    /** 返回按钮 y：配置面板打开时挪到面板下沿，避免与配置行重叠 */
+    private int returnButtonY(int centerY) {
+        if (this.activeConfig != null) {
+            return centerY + CONFIG_Y + this.activeConfig.forms().size() * CONFIG_ROW_H + 10;
+        }
+        return centerY + RETURN_Y;
+    }
+
     /** 右侧返回按钮：145x22 扁平风（与停止/页码按钮同款），栈底点击 = 关屏 */
     private void renderReturnButton(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY) {
-        boolean hover = inRect(mouseX, mouseY, centerX + RETURN_X, centerY + RETURN_Y, RETURN_W, RETURN_H);
-        graphics.fill(centerX + RETURN_X, centerY + RETURN_Y,
-                centerX + RETURN_X + RETURN_W, centerY + RETURN_Y + RETURN_H,
+        int returnY = returnButtonY(centerY);
+        boolean hover = inRect(mouseX, mouseY, centerX + RETURN_X, returnY, RETURN_W, RETURN_H);
+        graphics.fill(centerX + RETURN_X, returnY,
+                centerX + RETURN_X + RETURN_W, returnY + RETURN_H,
                 hover ? COLOR_FLAT_BUTTON_HOVER : COLOR_FLAT_BUTTON);
         graphics.drawCenteredString(this.font, Component.translatable("gui.tlm_statue_animation.roulette.return"),
-                centerX + RETURN_X + RETURN_W / 2, centerY + RETURN_Y + (RETURN_H - this.font.lineHeight) / 2, COLOR_LABEL);
+                centerX + RETURN_X + RETURN_W / 2, returnY + (RETURN_H - this.font.lineHeight) / 2, COLOR_LABEL);
     }
 
     /** 子菜单面包屑："id1 > id2"（id 原文，根 → 当前层）；根层（无上级）不画 */
@@ -317,8 +376,109 @@ public class StatueAnimationRouletteScreen extends Screen {
                 centerX + BREADCRUMB_X, centerY + BREADCRUMB_Y, COLOR_LABEL);
     }
 
-    /** 右侧页码控件：< 按钮、页码信息条（AQUA "x/y"）、> 按钮，与停止按钮同一扁平风 */
-    private void renderPageControls(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY, int pages) {
+    // ---------- 配置面板（§8.22：YSM 模型配置项，如显示/隐藏法印、九尾切换） ----------
+
+    /** 配置面板行点击：checkbox 翻转 0/1；radio 循环下一个选项；不支持的类型忽略 */
+    private void handleConfigClick(double mouseX, double mouseY, int centerX, int centerY) {
+        int rowY = centerY + CONFIG_Y;
+        for (YsmBinaryModelWalker.ConfigForm form : this.activeConfig.forms()) {
+            if (inRect(mouseX, mouseY, centerX + CONFIG_X, rowY, CONFIG_W, CONFIG_ROW_H)) {
+                handleFormClick(form);
+                return;
+            }
+            rowY += CONFIG_ROW_H;
+        }
+    }
+
+    private void handleFormClick(YsmBinaryModelWalker.ConfigForm form) {
+        if ("checkbox".equals(form.type())) {
+            String varName = RoamingAssignments.checkboxVarName(form.value());
+            if (varName == null) {
+                return;
+            }
+            float newValue = currentVar(varName) > 0.0f ? 0.0f : 1.0f;
+            this.localVars.put(varName, newValue);
+            playClickSound();
+            NetworkHandler.sendToServer(new C2SStatueRoamingVarPacket(this.corePos, varName, newValue));
+            StatueRoamingDriver.applyFromScreen(this.corePos, varName, newValue); // 即时生效（渲染帧路径负责持久覆盖）
+            return;
+        }
+        if ("radio".equals(form.type()) && !form.labels().isEmpty()) {
+            // radio 标签：显示名 → 完整赋值串（"v.roaming.x=2;"）；点击循环到下一项
+            List<Map.Entry<String, String>> options = List.copyOf(form.labels().entrySet());
+            int current = -1;
+            for (int i = 0; i < options.size(); i++) {
+                RoamingAssignments.Assignment assignment = RoamingAssignments.parse(options.get(i).getValue());
+                if (assignment != null && currentVar(assignment.varName()) == assignment.value()) {
+                    current = i;
+                    break;
+                }
+            }
+            RoamingAssignments.Assignment next = RoamingAssignments.parse(options.get((current + 1) % options.size()).getValue());
+            if (next == null) {
+                return;
+            }
+            this.localVars.put(next.varName(), next.value());
+            playClickSound();
+            NetworkHandler.sendToServer(new C2SStatueRoamingVarPacket(this.corePos, next.varName(), next.value()));
+            StatueRoamingDriver.applyFromScreen(this.corePos, next.varName(), next.value()); // 即时生效
+        }
+    }
+
+    /** 配置项当前值（本地覆盖优先，初始值来自雕像 NBT 的 YsmRoamingVars） */
+    private float currentVar(String varName) {
+        return this.localVars.getOrDefault(varName, 0.0f);
+    }
+
+    /** 配置面板：扁平深色面板 + 按钮标题 + 表单行（checkbox=[x] 前缀，radio=当前选项，其余灰显） */
+    private void renderConfigPanel(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY) {
+        int left = centerX + CONFIG_X;
+        int top = centerY + CONFIG_Y;
+        // 对齐 YSM：配置面板无面板级标题（按钮名无意义，如 "0"），直接渲染各表单项标题
+        int rowsHeight = this.activeConfig.forms().size() * CONFIG_ROW_H;
+        graphics.fill(left - 4, top - 4, left + CONFIG_W + 4, top + rowsHeight + 4, COLOR_FLAT_BUTTON);
+        int rowY = top;
+        Component hoveredTooltip = null;
+        for (YsmBinaryModelWalker.ConfigForm form : this.activeConfig.forms()) {
+            boolean hover = inRect(mouseX, mouseY, left, rowY, CONFIG_W, CONFIG_ROW_H);
+            graphics.fill(left, rowY, left + CONFIG_W, rowY + CONFIG_ROW_H,
+                    hover ? COLOR_FLAT_BUTTON_HOVER : COLOR_SEGMENT);
+            boolean supported = "checkbox".equals(form.type()) || "radio".equals(form.type());
+            int textColor = supported ? COLOR_LABEL : 0xFF777777;
+            graphics.drawString(this.font, Component.literal(rowLabel(form)), left + 6,
+                    rowY + (CONFIG_ROW_H - this.font.lineHeight) / 2, textColor);
+            if (hover && !form.description().isEmpty()) {
+                hoveredTooltip = Component.literal(form.description());
+            }
+            rowY += CONFIG_ROW_H;
+        }
+        if (hoveredTooltip != null) {
+            graphics.renderTooltip(this.font, hoveredTooltip, mouseX, mouseY);
+        }
+    }
+
+    /** 表单行文本：checkbox "[x] 标题"；radio "标题：当前选项"；其余 "标题（暂不支持该类型）" */
+    private String rowLabel(YsmBinaryModelWalker.ConfigForm form) {
+        if ("checkbox".equals(form.type())) {
+            String varName = RoamingAssignments.checkboxVarName(form.value());
+            boolean checked = varName != null && currentVar(varName) > 0.0f;
+            return (checked ? "[x] " : "[  ] ") + form.title();
+        }
+        if ("radio".equals(form.type())) {
+            String current = null;
+            for (Map.Entry<String, String> option : form.labels().entrySet()) {
+                RoamingAssignments.Assignment assignment = RoamingAssignments.parse(option.getValue());
+                if (assignment != null && currentVar(assignment.varName()) == assignment.value()) {
+                    current = option.getKey();
+                    break;
+                }
+            }
+            return form.title() + ": " + (current != null ? current : "-");
+        }
+        return form.title() + " (" + Component.translatable("gui.tlm_statue_animation.roulette.config.unsupported").getString() + ")";
+    }
+
+    /** 右侧页码控件：< 按钮、页码信息条（AQUA "x/y"）、> 按钮，与停止按钮同一扁平风 */    private void renderPageControls(GuiGraphics graphics, int mouseX, int mouseY, int centerX, int centerY, int pages) {
         boolean prevHover = inRect(mouseX, mouseY, centerX + PREV_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE);
         boolean nextHover = inRect(mouseX, mouseY, centerX + NEXT_X, centerY + PAGE_BTN_Y, PAGE_BTN_SIZE, PAGE_BTN_SIZE);
         graphics.fill(centerX + PREV_X, centerY + PAGE_BTN_Y,

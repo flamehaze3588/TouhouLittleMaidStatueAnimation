@@ -29,6 +29,6 @@ public final class StatueRouletteOpener {
             }
             return;
         }
-        Minecraft.getInstance().setScreen(new StatueAnimationRouletteScreen(ref.corePos(), modelId, animations));
+        Minecraft.getInstance().setScreen(new StatueAnimationRouletteScreen(ref.corePos(), modelId, animations, ref.maidNbt()));
     }
 }

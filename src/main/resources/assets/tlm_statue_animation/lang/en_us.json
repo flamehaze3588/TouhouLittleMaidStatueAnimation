@@ -1,9 +1,10 @@
 {
-  "key.categories.tlm_statue_animation": "Touhou Little Maid: Statue Animation",
-  "key.tlm_statue_animation.open_statue_roulette": "Open Statue Animation Roulette",
-  "gui.tlm_statue_animation.roulette.title": "Statue Animation",
-  "gui.tlm_statue_animation.roulette.stop": "Stop Animation",
-  "gui.tlm_statue_animation.roulette.return": "Back",
-  "gui.tlm_statue_animation.roulette.page": "%s/%s (scroll to flip)",
-  "chat.tlm_statue_animation.no_animations": "No roulette animations indexed for model %s (model may not be in local YSM folders)"
+    "key.categories.tlm_statue_animation":  "Touhou Little Maid: Statue Animation",
+    "key.tlm_statue_animation.open_statue_roulette":  "Open Statue Animation Roulette",
+    "gui.tlm_statue_animation.roulette.title":  "Statue Animation",
+    "gui.tlm_statue_animation.roulette.stop":  "Stop Animation",
+    "gui.tlm_statue_animation.roulette.return":  "Back",
+    "gui.tlm_statue_animation.roulette.page":  "%s/%s (scroll to flip)",
+    "chat.tlm_statue_animation.no_animations":  "No roulette animations indexed for model %s (model may not be in local YSM folders)",
+    "gui.tlm_statue_animation.roulette.config.unsupported":  "Unsupported type"
 }

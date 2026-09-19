@@ -3,6 +3,7 @@ package com.tlmstatueanimation.network;
 import com.tlmstatueanimation.TlmStatueAnimation;
 import com.tlmstatueanimation.network.message.C2SPlayStatueAnimationPacket;
 import com.tlmstatueanimation.network.message.C2SStatueExpressionPacket;
+import com.tlmstatueanimation.network.message.C2SStatueRoamingVarPacket;
 import com.tlmstatueanimation.network.message.C2SToggleStatueSitPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkDirection;
@@ -29,9 +30,13 @@ public final class NetworkHandler {
         CHANNEL.registerMessage(1, C2SStatueExpressionPacket.class, C2SStatueExpressionPacket::encode,
                 C2SStatueExpressionPacket::decode, C2SStatueExpressionPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
-        // id 2：蹲下 + expression_item 右键 → 雕像站姿/坐姿切换包
+        // id 2：蹲下 + expression_item/木棍 右键 → 雕像站姿/坐姿切换包
         CHANNEL.registerMessage(2, C2SToggleStatueSitPacket.class, C2SToggleStatueSitPacket::encode,
                 C2SToggleStatueSitPacket::decode, C2SToggleStatueSitPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        // id 3：雕像 YSM 漫游变量（模型配置项）写入包（§8.22）
+        CHANNEL.registerMessage(3, C2SStatueRoamingVarPacket.class, C2SStatueRoamingVarPacket::encode,
+                C2SStatueRoamingVarPacket::decode, C2SStatueRoamingVarPacket::handle,
                 Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
