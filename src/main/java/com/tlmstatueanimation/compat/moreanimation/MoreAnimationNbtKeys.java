@@ -14,8 +14,14 @@ public final class MoreAnimationNbtKeys {
     /** 允许写入/删除的键前缀：防御伪造包改写雕像 NBT 中其他 mod 的数据 */
     public static final String KEY_PREFIX = "moreanimation_";
 
-    /** 当前表情（ExpressionPacket 写入；空=删除） */
+    /** 当前表情（ExpressionPacket 写入；空=删除）。1.4 起同时是服务端的 MANUAL_EXPRESSION */
     public static final String EXPRESSION = "moreanimation_expression";
+    /**
+     * 客户端渲染用表情键（moreanimation 1.4 新增，= MaidAnimationData.CLIENT_EXPRESSION）：
+     * 1.4 起渲染谓词（gecko parallel7 与 YSM 桥）经 effectiveExpression 在客户端只读此键，
+     * 老键 moreanimation_expression 变为服务端手动值——雕像必须双写两个键才能显示表情。
+     */
+    public static final String EXPRESSION_RENDER = "moreanimation_expression_render";
     /** 当前一次性动作 */
     public static final String ACTIVE = "moreanimation_active_action";
     /** 一次性动作开始游戏刻 */

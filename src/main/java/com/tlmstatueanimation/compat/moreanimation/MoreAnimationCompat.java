@@ -22,11 +22,11 @@ public final class MoreAnimationCompat {
     public static final ResourceLocation EXPRESSION_ITEM_ID = new ResourceLocation(MOD_ID, "expression_item");
 
     /**
-     * 8 个表情 id（镜像 ExpressionScreen.EXPRESSIONS，该字段为 private 无法引用；
-     * 顺序即界面排布顺序）。
+     * 表情 id 清单（镜像 ExpressionScreen.EXPRESSIONS，该字段为 private 无法引用；
+     * 顺序即界面排布顺序。1.4 起新增 "uhoh"）。
      */
     private static final List<String> EXPRESSIONS = List.of(
-            "veryangry", "wuyu", "sosad", "provoke", "lips", "sneer", "dizziness", "kuang");
+            "veryangry", "wuyu", "sosad", "provoke", "lips", "sneer", "dizziness", "kuang", "uhoh");
 
     /** 未安装 moreanimation 时动作的兜底优先级（= MaidAnimationData.PRIORITY_MANUAL 20） */
     private static final int DEFAULT_PRIORITY = 20;

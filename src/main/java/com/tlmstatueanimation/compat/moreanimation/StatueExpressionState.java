@@ -103,16 +103,17 @@ public final class StatueExpressionState {
 
     // ---------- 发包键值拼装（镜像 ExpressionScreen 各 sendControl/sendExpression 写点） ----------
 
-    /** 表情：{@code moreanimation_expression = expressionId}。 */
+    /** 表情：{@code moreanimation_expression = expressionId}（1.4 起需同时写渲染键）。 */
     public static CompoundTag expressionKeys(String expressionId) {
         CompoundTag tag = new CompoundTag();
         tag.putString(MoreAnimationNbtKeys.EXPRESSION, expressionId);
+        tag.putString(MoreAnimationNbtKeys.EXPRESSION_RENDER, expressionId);
         return tag;
     }
 
-    /** 表情停止：删除 moreanimation_expression（原版 ExpressionPacket "stop" 语义）。 */
+    /** 表情停止：删除 moreanimation_expression 与渲染键（1.4 起两个键都要清）。 */
     public static List<String> expressionStopRemoveKeys() {
-        return List.of(MoreAnimationNbtKeys.EXPRESSION);
+        return List.of(MoreAnimationNbtKeys.EXPRESSION, MoreAnimationNbtKeys.EXPRESSION_RENDER);
     }
 
     /**
@@ -122,7 +123,7 @@ public final class StatueExpressionState {
      * 恢复基础姿势（若有）。
      */
     public static List<String> stopAllRemoveKeys() {
-        return List.of(MoreAnimationNbtKeys.EXPRESSION,
+        return List.of(MoreAnimationNbtKeys.EXPRESSION, MoreAnimationNbtKeys.EXPRESSION_RENDER,
                 MoreAnimationNbtKeys.ACTIVE, MoreAnimationNbtKeys.ACTIVE_START,
                 MoreAnimationNbtKeys.ACTIVE_UNTIL, MoreAnimationNbtKeys.ACTIVE_PRIORITY,
                 MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT);
@@ -190,6 +191,8 @@ public final class StatueExpressionState {
         return switch (interaction) {
             case "pet_owner", "pet_maid" -> "pet_other_head";
             case "hug_owner", "hug_maid" -> "hugtogether";
+            // 1.4 新增牵手互动：雕像无玩家可牵，退化为女仆侧前手伸出循环动作
+            case "hand_hold" -> "hand_hold_front_hold";
             default -> "";
         };
     }

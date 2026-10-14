@@ -32,14 +32,16 @@ import java.util.Map;
  * <li>auto_pet / auto_hug / injured_auto / random_sleep_pose 这类 AI 开关对雕像
  * （装饰方块实体）无实际驱动，但照常持久化——雕像 NBT 若未来被还原为女仆实体可直接继承；</li>
  * <li>互动动作（pet_owner/pet_maid/hug_owner/hug_maid）在原版中需要真实女仆与目标实体组成双人会话，雕像无此概念，
- * 简化为播放该互动中女仆侧的单人可见动作（{@link StatueExpressionState#interactionSoloAction}）。</li>
+ * 简化为播放该互动中女仆侧的单人可见动作（{@link StatueExpressionState#interactionSoloAction}）；
+ * 1.4 新增的 hand_hold 同理退化为女仆侧 hand_hold_front_hold 循环；
+ * 1.4 新增的 tears 开关则因其实体表+逐 tick 校验机制不适用于雕像假女仆，恒禁用（仅作界面展示）。</li>
  * </ul>
  * 本类只会在 moreanimation 已安装时被实例化（入口见 StatueExpressionInteractHandler），
  * 翻译键直接复用 moreanimation 的 gui.moreanimation.*。
  */
 public class StatueExpressionScreen extends Screen {
     private static final int PANEL_W = 400;
-    private static final int PANEL_H = 228;
+    private static final int PANEL_H = 255;
     private static final int BLUE = 0xFF4EC9F5;
     private static final int GREEN = 0xFF55D68B;
     private static final int RED = 0xFFEB6A73;
@@ -109,7 +111,7 @@ public class StatueExpressionScreen extends Screen {
             addAction(x + (i % 2) * 186, y + (i / 2) * 27, 178,
                     "gui.moreanimation.action." + expression, () -> sendExpression(expression));
         }
-        addAction(x, y + 112, 364, "gui.moreanimation.stop", () -> sendExpression("stop"));
+        addAction(x, y + 139, 364, "gui.moreanimation.stop", () -> sendExpression("stop"));
     }
 
     private void buildCategory(int x, int y, String category) {
@@ -158,14 +160,20 @@ public class StatueExpressionScreen extends Screen {
                             MoreAnimationNbtKeys.AUTO_HUG, autoHug), List.of());
                     rebuild();
                 });
-        String[] interactions = {"pet_owner", "pet_maid", "hug_owner", "hug_maid"};
+        String[] interactions = {"pet_owner", "pet_maid", "hug_owner", "hug_maid", "hand_hold"};
         for (int i = 0; i < interactions.length; i++) {
             String interaction = interactions[i];
             addAction(x + (i % 2) * 186, y + 38 + (i / 2) * 31, 178,
                     "gui.moreanimation.interaction." + interaction,
                     () -> playInteraction(interaction));
         }
-        graphicsHintButton(x, y + 108);
+        // 1.4 新增的眼泪开关：其客户端状态机要求实体在世界实体表中且逐 tick 校验，
+        // 雕像假女仆不在其中（会被当帧移除），故对雕像恒禁用（有说明，见类注释）
+        StatueTerminalButton tears = new StatueTerminalButton(x + 186, y + 100, 178, 22,
+                Component.translatable("gui.moreanimation.tears.off"), () -> {}, 0xFF64768B, false);
+        tears.active = false;
+        addRenderableWidget(tears);
+        graphicsHintButton(x, y + 139);
     }
 
     private void graphicsHintButton(int x, int y) {

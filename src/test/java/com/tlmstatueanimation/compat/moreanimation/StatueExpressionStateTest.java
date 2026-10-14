@@ -123,18 +123,21 @@ class StatueExpressionStateTest {
     void expressionKeysWritesExpression() {
         CompoundTag keys = StatueExpressionState.expressionKeys("wuyu");
         assertEquals("wuyu", keys.getString(MoreAnimationNbtKeys.EXPRESSION));
-        assertEquals(1, keys.size());
+        assertEquals("wuyu", keys.getString(MoreAnimationNbtKeys.EXPRESSION_RENDER),
+                "1.4 起渲染读 moreanimation_expression_render，必须双写");
+        assertEquals(2, keys.size());
     }
 
     @Test
     void expressionStopRemovesExpressionKey() {
-        assertEquals(List.of(MoreAnimationNbtKeys.EXPRESSION), StatueExpressionState.expressionStopRemoveKeys());
+        assertEquals(List.of(MoreAnimationNbtKeys.EXPRESSION, MoreAnimationNbtKeys.EXPRESSION_RENDER),
+                StatueExpressionState.expressionStopRemoveKeys());
     }
 
     @Test
     void stopAllRemovesExpressionAndActiveKeys() {
         // §8.18：雕像动作无限循环，"停止"必须同时清空表情与 ACTIVE* 键
-        assertEquals(List.of(MoreAnimationNbtKeys.EXPRESSION,
+        assertEquals(List.of(MoreAnimationNbtKeys.EXPRESSION, MoreAnimationNbtKeys.EXPRESSION_RENDER,
                         MoreAnimationNbtKeys.ACTIVE, MoreAnimationNbtKeys.ACTIVE_START,
                         MoreAnimationNbtKeys.ACTIVE_UNTIL, MoreAnimationNbtKeys.ACTIVE_PRIORITY,
                         MoreAnimationNbtKeys.ACTIVE_LOCK_MOVEMENT),

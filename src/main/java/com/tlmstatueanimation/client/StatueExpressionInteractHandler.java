@@ -7,8 +7,10 @@ import com.tlmstatueanimation.client.targeting.StatueTargetingForge;
 import com.tlmstatueanimation.compat.moreanimation.MoreAnimationCompat;
 import com.tlmstatueanimation.compat.moreanimation.StatueExpressionScreen;
 import com.tlmstatueanimation.network.NetworkHandler;
+import com.tlmstatueanimation.network.message.C2SFreezeStatueFramePacket;
 import com.tlmstatueanimation.network.message.C2SToggleStatueSitPacket;
 import net.minecraft.client.Minecraft;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -35,6 +37,8 @@ import net.minecraftforge.registries.ForgeRegistries;
 @Mod.EventBusSubscriber(modid = TlmStatueAnimation.MOD_ID, value = Dist.CLIENT)
 public final class StatueExpressionInteractHandler {
 
+    private static final ResourceLocation CAMERA_ITEM_ID = new ResourceLocation("touhou_little_maid", "camera");
+
     private StatueExpressionInteractHandler() {
     }
 
@@ -50,7 +54,9 @@ public final class StatueExpressionInteractHandler {
         }
         boolean isTerminal = MoreAnimationCompat.EXPRESSION_ITEM_ID.equals(ForgeRegistries.ITEMS.getKey(stack.getItem()));
         boolean isStick = stack.is(Items.STICK);
-        if (!isTerminal && !isStick) {
+        // 文文相机：右键雕像 = 定格/解除当前动作帧（§8.23，纯 TLM 特性，不需 moreanimation）
+        boolean isCamera = CAMERA_ITEM_ID.equals(ForgeRegistries.ITEMS.getKey(stack.getItem()));
+        if (!isTerminal && !isStick && !isCamera) {
             return;
         }
         // 终端开屏需 moreanimation 在场（屏幕类引用其 MaidAnimationData）；木棍切换姿势不需要
@@ -60,6 +66,10 @@ public final class StatueExpressionInteractHandler {
         // moreanimation 对 TLM 默认 bedrock 模型也生效，这里用不过滤 YSM 的解析变体
         StatueTargeting.resolveAnyMaid(event.getPos(), pos -> StatueTargetingForge.probe(event.getLevel(), pos))
                 .ifPresent(ref -> {
+                    if (isCamera) {
+                        NetworkHandler.sendToServer(new C2SFreezeStatueFramePacket(ref.corePos()));
+                        return;
+                    }
                     // 蹲下 + 右键：不开屏，直接发 C2S 包切换雕像站姿/坐姿（终端/木棍均可）
                     if (event.getEntity().isShiftKeyDown()) {
                         NetworkHandler.sendToServer(new C2SToggleStatueSitPacket(ref.corePos()));

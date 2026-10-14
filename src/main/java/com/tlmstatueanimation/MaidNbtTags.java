@@ -25,6 +25,10 @@ public final class MaidNbtTags {
      * 走与真实女仆一致的渲染链（普通站姿/坐姿）；仅客户端渲染读取，不影响真女仆
      */
     public static final String STATUE_POSE_INTERACTIVE = "StatuePoseInteractive";
+    /** 相机定格：写入定格瞬间的 gameTime（存在即定格，§8.23） */
+    public static final String STATUE_FREEZE_AT = "StatueFreezeAt";
+    /** 相机定格：写入定格瞬间的 tickCount（gecko 动画时间冻结点，§8.23） */
+    public static final String STATUE_FREEZE_TICK = "StatueFreezeTick";
 
     private MaidNbtTags() {
     }

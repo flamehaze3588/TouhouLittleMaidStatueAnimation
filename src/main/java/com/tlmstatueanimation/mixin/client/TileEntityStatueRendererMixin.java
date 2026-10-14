@@ -4,13 +4,18 @@ import com.github.tartaricacid.touhoulittlemaid.api.client.render.MaidRenderStat
 import com.github.tartaricacid.touhoulittlemaid.client.renderer.tileentity.TileEntityStatueRenderer;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityStatue;
+import com.github.tartaricacid.touhoulittlemaid.util.EntityCacheUtil;
 import com.tlmstatueanimation.MaidNbtTags;
 import com.tlmstatueanimation.client.StatueAnimFreezeControl;
 import com.tlmstatueanimation.client.StatueIdentity;
+import com.tlmstatueanimation.client.YsmExpressionFreeze;
+import com.tlmstatueanimation.compat.moreanimation.MoreAnimationNbtKeys;
+import com.tlmstatueanimation.server.StatueFrameFreeze;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import org.objectweb.asm.Opcodes;
@@ -50,6 +55,33 @@ public abstract class TileEntityStatueRendererMixin {
                                                        CompoundTag data, Level world, EntityType<?> type,
                                                        CallbackInfo ci) {
         data.putUUID("UUID", StatueIdentity.forPos(te.getBlockPos()));
+    }
+
+    @Inject(method = "renderEntity",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/github/tartaricacid/touhoulittlemaid/tileentity/TileEntityStatue$Size;getScale()F"),
+            remap = false)
+    private void tlmStatueAnimation$freezeFrame(TileEntityStatue te, PoseStack poseStack,
+                                                MultiBufferSource bufferIn, int combinedLightIn,
+                                                CompoundTag data, Level world, EntityType<?> type, CallbackInfo ci) {
+        if (!data.contains(MaidNbtTags.STATUE_FREEZE_AT, Tag.TAG_LONG)) {
+            return;
+        }
+        EntityMaid maid = EntityCacheUtil.STATUE_CACHE.getIfPresent(te.getBlockPos().asLong());
+        if (maid == null) {
+            return;
+        }
+        maid.tickCount = data.getInt(MaidNbtTags.STATUE_FREEZE_TICK);
+        if (maid.isYsmModel()) {
+            CompoundTag persistentData = maid.getPersistentData();
+            if (persistentData.contains(MoreAnimationNbtKeys.ACTIVE)) {
+                persistentData.putLong(MoreAnimationNbtKeys.ACTIVE_START,
+                        StatueFrameFreeze.frozenActiveStart(persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_START),
+                                world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT)));
+            }
+            // 表情是独立时间源（PLAYING_EXPRESSIONS），同样时移才能定格（§8.23 补充）
+            YsmExpressionFreeze.shiftExpressionStart(maid, world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT));
+        }
     }
 
     @Redirect(method = "renderEntity",
