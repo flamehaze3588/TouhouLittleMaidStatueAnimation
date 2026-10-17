@@ -83,6 +83,16 @@ public final class MoreAnimationCompat {
     }
 
     /**
+     * "侧头看"动作组解析（§8.26，镜像 TerminalControlPacket "play" 的 lean_look 特判）：
+     * 按钮发的是组名 {@code lean_look}，真实动画是 animation.wine_fox.lean_look_left/right 两个变体。
+     * 真女仆走 LeanLookEvent 的一串条件校验后随机选左右；雕像是装饰不做条件校验，
+     * 仅在服务端随机选定变体（保证各客户端一致）。其余动作原样返回。
+     */
+    public static String resolvePlayAction(String action, net.minecraft.util.RandomSource random) {
+        return isLoaded() ? Loaded.resolvePlayAction(action, random) : action;
+    }
+
+    /**
      * 隔离舱：唯一直接引用 moreanimation 类的地方。只有 isLoaded() 为真后外部调用链
      * 才会触达这里，此时 moreanimation 必然已加载，类解析安全。
      */
@@ -127,6 +137,16 @@ public final class MoreAnimationCompat {
 
         private static boolean isParallelAction(String action) {
             return MaidAnimationData.isParallelAction(action);
+        }
+
+        private static String resolvePlayAction(String action, net.minecraft.util.RandomSource random) {
+            // LeanLookEvent.GROUP/LEFT/RIGHT 是编译期字符串常量，会被内联，不产生运行时类引用
+            if (com.github.JumDa5he.moreanimation.compat.event.LeanLookEvent.GROUP.equals(action)) {
+                return random.nextBoolean()
+                        ? com.github.JumDa5he.moreanimation.compat.event.LeanLookEvent.LEFT
+                        : com.github.JumDa5he.moreanimation.compat.event.LeanLookEvent.RIGHT;
+            }
+            return action;
         }
     }
 }

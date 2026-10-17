@@ -120,6 +120,12 @@ public record C2SStatueExpressionPacket(BlockPos corePos, CompoundTag setKeys, L
         if (this.setKeys.contains(MoreAnimationNbtKeys.ACTIVE, Tag.TAG_STRING)
                 && !this.setKeys.getString(MoreAnimationNbtKeys.ACTIVE).isEmpty()) {
             String action = this.setKeys.getString(MoreAnimationNbtKeys.ACTIVE);
+            // "侧头看"按钮发的是组名 lean_look，需翻译成左右变体之一（§8.26，服务端随机保证各端一致）
+            String resolved = MoreAnimationCompat.resolvePlayAction(action, level.getRandom());
+            if (!resolved.equals(action)) {
+                this.setKeys.putString(MoreAnimationNbtKeys.ACTIVE, resolved);
+                action = resolved;
+            }
             StatueForgeDataMerge.fillPlayTiming(this.setKeys, level.getGameTime(),
                     MoreAnimationCompat.playPriorityFor(action));
         }
