@@ -24,4 +24,9 @@ public final class StatueIdentity {
     public static UUID forPos(BlockPos pos) {
         return new UUID(MAGIC, pos.asLong());
     }
+
+    /** 是否为雕像假女仆的派生 UUID（§8.20） */
+    public static boolean isStatue(UUID uuid) {
+        return uuid != null && uuid.getMostSignificantBits() == MAGIC;
+    }
 }

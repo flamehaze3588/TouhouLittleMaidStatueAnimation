@@ -2,6 +2,7 @@ package com.tlmstatueanimation.client;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.tlmstatueanimation.TlmStatueAnimation;
+import com.tlmstatueanimation.compat.moreanimation.MoreAnimationNbtKeys;
 import net.minecraftforge.common.capabilities.Capability;
 
 import java.lang.reflect.Constructor;
@@ -38,6 +39,8 @@ public final class YsmExpressionFreeze {
      * 否则进度每帧漂移而不是恒定）。
      */
     private static final WeakHashMap<Object, Long> ORIGINAL_STARTS = new WeakHashMap<>();
+    /** 动作 ACTIVE_START 定格瞬间的原始值（与表情分开记账，避免共享引用/覆盖导致漂移） */
+    private static final WeakHashMap<Object, Long> ACTION_STARTS = new WeakHashMap<>();
 
     private YsmExpressionFreeze() {
     }
@@ -105,6 +108,28 @@ public final class YsmExpressionFreeze {
             playing.put(animatable, expressionPlayingCtor.newInstance(expression, adjusted));
         } catch (Throwable t) {
             TlmStatueAnimation.LOGGER.debug("YsmExpressionFreeze shift failed", t);
+        }
+    }
+
+    /**
+     * 动作的 ACTIVE_START 时移（与表情同模式，§8.23 补充）。
+     * 以定格瞬间的原始 ACTIVE_START 为基准（不能用当帧已时移过的值，否则进度漂移）。
+     */
+    public static void shiftActionActiveStart(EntityMaid maid, long now, long freezeAt) {
+        if (!init()) {
+            return;
+        }
+        try {
+            var persistentData = maid.getPersistentData();
+            if (!persistentData.contains(MoreAnimationNbtKeys.ACTIVE)) {
+                return;
+            }
+            long originalStart = ACTION_STARTS.computeIfAbsent(maid,
+                    key -> persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_START));
+            long adjusted = originalStart + now - freezeAt;
+            persistentData.putLong(MoreAnimationNbtKeys.ACTIVE_START, adjusted);
+        } catch (Throwable t) {
+            TlmStatueAnimation.LOGGER.debug("YsmExpressionFreeze action shift failed", t);
         }
     }
 }

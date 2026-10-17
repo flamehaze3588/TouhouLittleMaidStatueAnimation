@@ -2,6 +2,7 @@ package com.tlmstatueanimation.compat.moreanimation;
 
 import com.github.JumDa5he.moreanimation.compat.animation.MaidAnimationData;
 import com.github.JumDa5he.moreanimation.config.MoreAnimationConfig;
+import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.fml.ModList;
 
@@ -71,6 +72,16 @@ public final class MoreAnimationCompat {
         return isLoaded() && Loaded.defaultAutoHug();
     }
 
+    /** moreanimation 当前活跃动作 key（空=无活跃或已过期；仅 isLoaded 时有意义，否则返回空串）。 */
+    public static String activeAction(EntityMaid maid) {
+        return isLoaded() ? Loaded.activeAction(maid) : "";
+    }
+
+    /** 动作是否为并行动画（并行动作使用 parallel_6 控制器而非主控制器）。 */
+    public static boolean isParallelAction(String action) {
+        return isLoaded() && Loaded.isParallelAction(action);
+    }
+
     /**
      * 隔离舱：唯一直接引用 moreanimation 类的地方。只有 isLoaded() 为真后外部调用链
      * 才会触达这里，此时 moreanimation 必然已加载，类解析安全。
@@ -108,6 +119,14 @@ public final class MoreAnimationCompat {
             } catch (Throwable t) {
                 return false;
             }
+        }
+
+        private static String activeAction(EntityMaid maid) {
+            return MaidAnimationData.activeAction(maid);
+        }
+
+        private static boolean isParallelAction(String action) {
+            return MaidAnimationData.isParallelAction(action);
         }
     }
 }

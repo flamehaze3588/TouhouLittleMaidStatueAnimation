@@ -61,12 +61,7 @@ public abstract class TileEntityGarageKitRendererMixin {
         }
         maid.tickCount = data.getInt(MaidNbtTags.STATUE_FREEZE_TICK);
         if (maid.isYsmModel()) {
-            CompoundTag persistentData = maid.getPersistentData();
-            if (persistentData.contains(MoreAnimationNbtKeys.ACTIVE)) {
-                persistentData.putLong(MoreAnimationNbtKeys.ACTIVE_START,
-                        StatueFrameFreeze.frozenActiveStart(persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_START),
-                                world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT)));
-            }
+            YsmExpressionFreeze.shiftActionActiveStart(maid, world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT));
             YsmExpressionFreeze.shiftExpressionStart(maid, world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT));
         }
     }

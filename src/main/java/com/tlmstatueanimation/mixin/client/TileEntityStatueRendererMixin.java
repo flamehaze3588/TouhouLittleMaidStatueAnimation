@@ -6,6 +6,7 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.tileentity.TileEntityStatue;
 import com.github.tartaricacid.touhoulittlemaid.util.EntityCacheUtil;
 import com.tlmstatueanimation.MaidNbtTags;
+import com.tlmstatueanimation.TlmStatueAnimation;
 import com.tlmstatueanimation.client.StatueAnimFreezeControl;
 import com.tlmstatueanimation.client.StatueIdentity;
 import com.tlmstatueanimation.client.YsmExpressionFreeze;
@@ -20,6 +21,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -73,12 +75,7 @@ public abstract class TileEntityStatueRendererMixin {
         }
         maid.tickCount = data.getInt(MaidNbtTags.STATUE_FREEZE_TICK);
         if (maid.isYsmModel()) {
-            CompoundTag persistentData = maid.getPersistentData();
-            if (persistentData.contains(MoreAnimationNbtKeys.ACTIVE)) {
-                persistentData.putLong(MoreAnimationNbtKeys.ACTIVE_START,
-                        StatueFrameFreeze.frozenActiveStart(persistentData.getLong(MoreAnimationNbtKeys.ACTIVE_START),
-                                world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT)));
-            }
+            YsmExpressionFreeze.shiftActionActiveStart(maid, world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT));
             // 表情是独立时间源（PLAYING_EXPRESSIONS），同样时移才能定格（§8.23 补充）
             YsmExpressionFreeze.shiftExpressionStart(maid, world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT));
         }
