@@ -153,7 +153,9 @@ jar {
 }
 
 // 主产物：含 mcLib 依赖（aircompressor）的 shadowJar，io.airlift 重定位防冲突
+//（classifier=all-1.20，与 1.21 NeoForge 版区分文件名）
 shadowJar {
+    archiveClassifier = 'all-1.20'
     configurations = [project.configurations.mcLib]
 
     relocate 'io.airlift', 'com.tlmstatueanimation.libs.airlift'
