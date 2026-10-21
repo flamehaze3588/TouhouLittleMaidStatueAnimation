@@ -17,8 +17,23 @@ import java.util.WeakHashMap;
  */
 public final class StatueAnimFreezeControl {
     private static final WeakHashMap<EntityMaid, FreezeGraceTracker> TRACKERS = new WeakHashMap<>();
+    /** 定格雕像的假女仆"首次见到"时间（重进存档/缓存重建后） */
+    private static final WeakHashMap<EntityMaid, Long> FREEZE_FIRST_SEEN = new WeakHashMap<>();
+    /** 定格预热窗口（§8.23 补充）：冻结时钟下 YSM/geckolib 的动画过渡永不前进，
+     *  重进存档后若立刻冻结，雕像会停在待机/默认姿势而不是定格帧。预热期内让时钟活跑。
+     *  实测 15 tick 会丢失瞬间动作的定格观感、1 tick 不够稳，5 tick 为用户实测折中值 */
+    private static final long FREEZE_WARMUP_TICKS = 5;
 
     private StatueAnimFreezeControl() {
+    }
+
+    /**
+     * 定格预热判定：假女仆刚重建（重进存档/缓存过期重建）且带定格键时，前
+     * {@link #FREEZE_WARMUP_TICKS} tick 返回 true（本帧不冻结，让动画初始化与过渡完成），
+     * 之后冻结到定格帧。同一只假女仆只在重建后的首个窗口预热，会话内定格不受影响。
+     */
+    public static boolean freezeWarmup(EntityMaid maid, long now) {
+        return now - FREEZE_FIRST_SEEN.computeIfAbsent(maid, k -> now) < FREEZE_WARMUP_TICKS;
     }
 
     /**

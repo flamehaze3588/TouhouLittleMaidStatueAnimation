@@ -73,6 +73,11 @@ public abstract class TileEntityStatueRendererMixin {
         if (maid == null) {
             return;
         }
+        // §8.23 补充：假女仆刚重建时先让时钟活跑一个预热窗（冻结时钟下动画过渡永不前进，
+        // 重进存档会停在待机/默认姿势而非定格帧），预热后才冻结
+        if (StatueAnimFreezeControl.freezeWarmup(maid, world.getGameTime())) {
+            return;
+        }
         maid.tickCount = data.getInt(MaidNbtTags.STATUE_FREEZE_TICK);
         if (maid.isYsmModel()) {
             YsmExpressionFreeze.shiftActionActiveStart(maid, world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT));

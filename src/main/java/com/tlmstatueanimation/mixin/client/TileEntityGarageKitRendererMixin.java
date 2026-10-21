@@ -59,6 +59,10 @@ public abstract class TileEntityGarageKitRendererMixin {
         if (maid == null) {
             return;
         }
+        // 同 TileEntityStatueRendererMixin：假女仆刚重建时先预热（活时钟完成动画过渡）再冻结
+        if (StatueAnimFreezeControl.freezeWarmup(maid, world.getGameTime())) {
+            return;
+        }
         maid.tickCount = data.getInt(MaidNbtTags.STATUE_FREEZE_TICK);
         if (maid.isYsmModel()) {
             YsmExpressionFreeze.shiftActionActiveStart(maid, world.getGameTime(), data.getLong(MaidNbtTags.STATUE_FREEZE_AT));
