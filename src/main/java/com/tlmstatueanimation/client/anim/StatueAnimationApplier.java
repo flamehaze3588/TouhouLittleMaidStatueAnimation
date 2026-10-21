@@ -32,6 +32,10 @@ import java.util.Map;
 @Mod.EventBusSubscriber(modid = TlmStatueAnimation.MOD_ID, value = Dist.CLIENT)
 public final class StatueAnimationApplier {
     private static final Long2ObjectMap<Applied> LAST_APPLIED = new Long2ObjectOpenHashMap<>();
+    /** 假女仆首次出现的 gameTime（重进存档后 YSM 新生 animatable 可能吞掉首个 dirty 沿，前 3 秒每秒补一次边沿） */
+    private static final Long2ObjectMap<Long> FIRST_SEEN_TICK = new Long2ObjectOpenHashMap<>();
+    /** 上一帧的客户端世界实例：检测退出存档/换维度（实例切换） */
+    private static Level lastLevel;
 
     private StatueAnimationApplier() {
     }
@@ -45,10 +49,22 @@ public final class StatueAnimationApplier {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) {
+        if (mc.level != lastLevel) {
+            lastLevel = mc.level;
             LAST_APPLIED.clear();
+            FIRST_SEEN_TICK.clear();
+            if (mc.level != null) {
+                // 热重进/换维度：TLM 的 STATUE_CACHE 是 10 秒访问过期的进程级缓存，缓存里的假女仆
+                // 还绑定着已卸载的旧世界——实测此时 YSM 不再驱动它的 animatable（dirty 旗标永不
+                // 被消费，雕像定格在最后姿势）。清缓存强制按新世界重建。
+                EntityCacheUtil.STATUE_CACHE.invalidateAll();
+                EntityCacheUtil.GARAGE_KIT_CACHE.invalidateAll();
+            }
+        }
+        if (mc.level == null) {
             return;
         }
+        long now = mc.level.getGameTime();
         Map<Long, EntityMaid> cache = EntityCacheUtil.STATUE_CACHE.asMap();
         for (Map.Entry<Long, EntityMaid> entry : cache.entrySet()) {
             EntityMaid maid = entry.getValue();
@@ -70,10 +86,19 @@ public final class StatueAnimationApplier {
                 default -> {
                 }
             }
+            // 假女仆出现后前 3 秒内每秒重补一次播放边沿：重进存档时 YSM 的 animatable 是新建的，
+            // 首个 dirty 边沿可能被初始化时序吞掉（实测：不重补则重进后动作不播）
+            if (decision.playing() && decision.animKey() != null) {
+                long firstSeen = FIRST_SEEN_TICK.computeIfAbsent(entry.getKey(), k -> now);
+                if (now - firstSeen < 60 && now % 20 == 0) {
+                    maid.playRouletteAnim(decision.animKey());
+                }
+            }
             LAST_APPLIED.put(entry.getKey(), new Applied(decision.animKey(), decision.playing()));
         }
         // 缓存中已消失（10 秒无访问过期/区块卸载）的坐标同步逐出
         LAST_APPLIED.keySet().removeIf(key -> !cache.containsKey(key));
+        FIRST_SEEN_TICK.keySet().removeIf(key -> !cache.containsKey(key));
     }
 
     /**
